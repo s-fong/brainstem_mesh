@@ -164,7 +164,6 @@ def repeat_points_along_axis(points, addZEndCentroids=0, plot=1):
     z_vals = set(points[:,2])
     zends = [min(z_vals), max(z_vals)]
 
-    translatedClusterPoints = []
     if True: # only one repetition of the cluster
         clusterCentroid = np.average(points, 0)
         clusterPoints = [p for p in points if abs(p[2] - clusterCentroid[2]) < ztol]
@@ -310,13 +309,10 @@ def rudimentary_ellipsoid_fit(points, hull, plot):
         return radius, axis, bp
 
     def find_principal_axes_secondary(centre, points, tol, j):
-        z = points[:,j]
-        zslices = set(z)
         centrePoints = [p for p in points if abs(p[2]-centre[2])<tol[1]]
 
         x =  [c[j] for c in centrePoints]
         maxj = max(x) # radius
-        k = 0 if j == 1 else 1
 
         # create a new point to ensure that x/y == 0
         bp = [centre,
@@ -352,7 +348,6 @@ def rudimentary_ellipsoid_fit(points, hull, plot):
         #     bestpair = np.unravel_index(hdist.argmax(), hdist.shape)
         #     bp = np.array([hullpoints[bestpair[0]], hullpoints[bestpair[1]]])
         # print(bp)
-    cols = ['r','g','b']
     if plot:
         bps = np.array(bps)
         ax.scatter(points[:,0], points[:,1], points[:,2], marker='.', color='g')
@@ -360,7 +355,7 @@ def rudimentary_ellipsoid_fit(points, hull, plot):
             ax.scatter(bps[:,0], bps[:,1], bps[:,2], marker='x', color='r')
             ax.plot(bps[0:2, 0], bps[0:2, 1], bps[0:2, 2], color='r')
         except:
-            j = 10
+            pass
             print('j=10 instead of plot')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
@@ -469,11 +464,9 @@ def zinc_read_exf_file(file, raw_data, derv_present, marker_present, otherFieldN
         nodeIter = nodes.createNodeiterator()
         node = nodeIter.next()
         while node.isValid():
-            nodeID = node.getIdentifier()
             fieldcache.setNode(node)
             markerName = markerNamesField.evaluateString(fieldcache)
             if markerName is not None:
-                # markerName = markerName.split('Origin of ')[-1].capitalize()
                 if raw_data:
                     result, x = coordinates.getNodeParameters(fieldcache, -1, Node.VALUE_LABEL_VALUE, 1, 3)
                 else:
@@ -489,84 +482,6 @@ def zinc_read_exf_file(file, raw_data, derv_present, marker_present, otherFieldN
         return all_node_num, xyz_all, dxyz_single, xyzGroups, element_list, xyz_marker, marker_names, marker_nodenum, marker_elemxi
     else:
         return all_node_num, xyz_all, dxyz_single, xyzGroups
-
-
-def zinc_read_exf_multi_regions(file, raw_data, derv_present, read_elements, mesh_dimension):
-    context = Context("Example")
-    region = context.getDefaultRegion()
-    region.readFile(file)
-    if not region.readFile(file):
-        print('File not readable for zinc')
-
-    nuclearGroups = {}
-    endFile = False
-    while not endFile:
-
-        chRegion = region.getFirstChild()
-        regionName = region.getFirstChild().getName()
-        if regionName == None:
-            endFile = True
-        else:
-            fm = chRegion.getFieldmodule()
-            cache = fm.createFieldcache()
-            nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
-            coords_name = "data_coordinates" if raw_data == 1 else "coordinates"
-            coordinates = findOrCreateFieldCoordinates(fm, coords_name)
-            mesh = fm.findMeshByDimension(mesh_dimension)
-
-            all_node_num, xyz_all, dxyz_single = coordinates_opencmiss_to_list(cache, nodes, coordinates, derv_present)
-
-            element_list = []
-            if read_elements:
-                elementIter = mesh.createElementiterator()
-                element = elementIter.next()
-                while element.isValid():
-                    eft = element.getElementfieldtemplate(coordinates, -1)  # assumes all components same
-                    nodeIdentifiers = getElementNodeIdentifiersBasisOrder(element, eft)
-                    element_list.append(nodeIdentifiers)
-                    element = elementIter.next()
-
-            nuclearGroups[regionName] = {'nodes': all_node_num, 'xyz': xyz_all, 'dxyz': dxyz_single, 'element_nodes': element_list}
-            region.removeChild(region.getFirstChild())
-
-    return nuclearGroups
-
-
-def zinc_find_ix_from_real_coordinates_different_files(modelFile, dataFile):
-    context = Context("Example")
-    region = context.getDefaultRegion()
-    # load model
-    region.readFile(modelFile)
-    if not region.readFile(modelFile):
-        print('File not readable for zinc')
-        return []
-    region.readFile(dataFile)
-    if not region.readFile(dataFile):
-        print('File not readable for zinc')
-        return []
-    fm = region.getFieldmodule()
-    cache = fm.createFieldcache()
-    nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
-    datapoints = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
-    dataNamesField = fm.findFieldByName("marker_data_name")
-    coordinates = findOrCreateFieldCoordinates(fm, "coordinates")
-    data_coordinates = findOrCreateFieldCoordinates(fm, "marker_data_coordinates")
-    mesh = fm.findMeshByDimension(3)
-
-    found_mesh_location = fm.createFieldFindMeshLocation(data_coordinates, coordinates, mesh)
-    found_mesh_location.setSearchMode(found_mesh_location.SEARCH_MODE_NEAREST)
-    xi_projected_data = {}
-    nodeIter = datapoints.createNodeiterator()
-    node = nodeIter.next()
-    while node.isValid():
-        cache.setNode(node)
-        element, xi = found_mesh_location.evaluateMeshLocation(cache, 3)
-        marker_name = dataNamesField.evaluateString(cache)
-        if element.isValid():
-            addProjection = {marker_name:{"elementID": element.getIdentifier(), "xi": xi}}
-            xi_projected_data.update(addProjection)
-        node = nodeIter.next()
-    return xi_projected_data
 
 
 def zinc_find_ix_from_real_coordinates(region, regionName):
@@ -596,7 +511,7 @@ def zinc_find_ix_from_real_coordinates(region, regionName):
     return xi_projected_data
 
 
-def zinc_write_element_xi_marker_file(region, allMarkers, xiNodeInfo, regionD, nodeIdentifierStart, storageDict, outFile=[]):
+def zinc_write_element_xi_marker_file(region, allMarkers, xiNodeInfo, regionD, nodeIdentifierStart, outFile=[]):
     fm = region.getFieldmodule()
     if outFile:
         fm.beginChange()
@@ -621,13 +536,12 @@ def zinc_write_element_xi_marker_file(region, allMarkers, xiNodeInfo, regionD, n
     xiNodeTemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS1, 1)
     xiNodeTemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS2, 1)
     xiNodeTemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS3, 1)
-    xiMeshGroup = AnnotationGroup(region, ('tracts_xi', None)).getMeshGroup(mesh1d)
+    xiMeshGroup = AnnotationGroup(region, ('tracts_xi_elements', None)).getMeshGroup(mesh1d)
 
     nodeIdentifier = nodeIdentifierStart
     for key in allMarkers:
         xiNodeGroup = findOrCreateFieldGroup(fm, xiNodeInfo['groupName']+'_'+key)
         xiNodePoints = findOrCreateFieldNodeGroup(xiNodeGroup, nodes).getNodesetGroup()
-        xi = allMarkers[key]["xi"]
         addxiNode = {"name": key, "xi": allMarkers[key]["xi"]}
         xiNodePoint = xiNodePoints.createNode(nodeIdentifier, xiNodeTemplate)
         xiNodePoint.merge(xiNodeTemplate)
@@ -644,7 +558,6 @@ def zinc_write_element_xi_marker_file(region, allMarkers, xiNodeInfo, regionD, n
             result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, [1,0,0])
             result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS2, 1, [0,1,0])
             result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, [0,0,1])
-        storageDict[key].update(nodeIdentifier)
 
         nodeIdentifier += 1
 
@@ -668,95 +581,6 @@ def zinc_write_element_xi_marker_file(region, allMarkers, xiNodeInfo, regionD, n
     return region
 
 
-def BROKEN_zinc_write_element_xi_file(xyz, allMarkers, fm=[], outFile=[]):
-    if not fm:
-        context = Context("Example")
-        outputRegion = context.getDefaultRegion()
-        fm = outputRegion.getFieldmodule()
-        fm.beginChange()
-    cache = fm.createFieldcache()
-    coordinates = findOrCreateFieldCoordinates(fm)
-
-    nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
-    nodetemplate = nodes.createNodetemplate()
-    nodetemplate.defineField(coordinates)
-    nodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
-    markerNodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
-    markerGroup = findOrCreateFieldGroup(fm, "marker")
-    markerName = findOrCreateFieldStoredString(fm, name="marker_name")
-    markerPoints = findOrCreateFieldNodeGroup(markerGroup, markerNodes).getNodesetGroup()
-    markerTemplate = markerPoints.createNodetemplate()
-    markerTemplate.defineField(markerName)
-    markerTemplate.defineField(coordinates)
-
-    nodeIdentifier = 1
-    for ix in xyz:
-        node = nodes.createNode(nodeIdentifier, nodetemplate)
-        cache.setNode(node)
-        coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, ix)
-        nodeIdentifier += 1
-
-    nodeIdentifier = 1
-    for key in allMarkers:
-        addMarker = {"name": key, "xyz": allMarkers[key]}
-        node = markerPoints.createNode(nodeIdentifier, markerTemplate)
-        cache.setNode(node)
-        coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, addMarker['xyz'])
-        markerName.assignString(cache, addMarker["name"])
-        nodeIdentifier += 1
-
-    if outFile:
-        fm.endChange()
-        outputRegion.writeFile(outFile)
-
-
-
-def cart2pol(p, centroid):
-    x = p[0] - centroid[0]
-    y = p[1] - centroid[1]
-    return ( np.arctan2(y, x),  np.sqrt(x**2 + y**2))
-
-
-def matrix_multiply_2D(x, theta):
-    x_rot = x[0]*cos(theta) + x[1]*sin(theta)
-    y_rot = -x[0]*sin(theta) + x[1]*cos(theta)
-    if len(x) > 4:
-        return [x_rot, y_rot, x[2], x[3], x[4]]
-    if len(x) > 3:
-        return [x_rot, y_rot, x[2], x[3]]
-    elif len(x) > 2:
-        return [x_rot, y_rot, x[2]]
-    else:
-        return [x_rot, y_rot]
-
-
-def rotate_points(xyz, theta, fid):
-    # rotate points according to axis defined by vector [am, bm]
-    # [am bm] become the new x axis [0 1]
-
-    if isinstance(xyz, dict):
-        xyz = [xyz[key] for key in xyz.keys()]
-
-    if fid: # rotate by fids (DA and TST sit on x=0)
-        pDA = fid[0]
-        pTST = fid[1]
-        theta = atan((pTST[1] - pDA[1]) / (pTST[0] - pDA[0]))
-
-    else:
-        if not theta:
-            D = pdist(xyz)
-            D = squareform(D)
-            N, [a, b] = nanmax(D), unravel_index(argmax(D), D.shape)
-            am = xyz[a]
-            bm = xyz[b]
-            theta = atan((bm[1] - am[1]) / (bm[0] - am[0]))
-
-    xyz_rot = [matrix_multiply_2D(p, theta) for p in xyz]
-
-    return (xyz_rot, theta)
-
-
-
 def find_closest_mesh_node(xtarget, xmesh):
     # index = min(xmesh, key=lambda x:abs(x-xtarget))
     # xtarget = np.array(xtarget)
@@ -768,7 +592,6 @@ def find_closest_mesh_node(xtarget, xmesh):
 
 def find_closest_end(xyzp, target):
     norm = 1e6
-    plen = len(xyzp)
     end_kept = []
     for count, xyz in enumerate(xyzp):
         vdf = [target[i] - xyz[i] for i in range(3)]
@@ -778,25 +601,3 @@ def find_closest_end(xyzp, target):
             index = count
             norm = norm_raw
     return end_kept, index
-
-
-
-def create_colormap(cname):
-    ncolors = 256
-    color_array = plt.get_cmap(cname)(range(ncolors))
-    # change alpha values
-    color_array[:, -1] = np.linspace(0, 1, ncolors)
-    # create a colormap object and register to matplotlib
-    cname_new = cname+'_trans'
-    map_object = LinearSegmentedColormap.from_list(name=cname_new, colors=color_array)
-    plt.register_cmap(cmap=map_object)
-    return cname_new
-
-
-def refine_mesh(region, outputRegion, dv):
-    meshRefinement = MeshRefinement(region, outputRegion)
-    meshRefinement.refineAllElementsCubeStandard3d(dv,dv,1)
-    fm = outputRegion.getFieldmodule()
-    nodeIdentifier = fm.findNodesetByName('nodes').getSize()
-
-    return outputRegion, nodeIdentifier+1

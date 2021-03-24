@@ -146,25 +146,6 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_n
         return dict
 
     endsDict = {}
-    # parse through existing nerve entries, and add origin/end information
-    # this generic code only works for nerves with one nucleus
-    if False: # nerves most likely need correcting as it has more than one nucleus.
-        for nerve in cranialDict_raw.keys():
-            try:
-                splitstr = nerve.split(' ')
-                if splitstr[-1] in nerveWords:
-                    rootName = ''
-                    for iw, word in enumerate(splitstr[:-1]):
-                        rootName += ' ' +word if iw > 0 else word
-                else:
-                    break
-                linkedNucleus = rootName + ' NUC'
-                nuclearEnd, ind = find_closest_end(cranialDict_raw[nerve], regionD[linkedNucleus]['centre'])
-                nuclearEnd = regionD[linkedNucleus]['centre']
-                brainstemEnd = cranialDict_raw[nerve][-1] if ind == 0 else cranialDict_raw[nerve][0]
-                endsDict.update({nerve:{rootName+' nucleus':nuclearEnd, 'brainstemEnd':brainstemEnd}})
-            except:
-                print('For one-to-one nerve-nuclei link, data has no nucleus named ', linkedNucleus)
 
     # make connections for nerve+nuc that have differing root names
     # construct missing nerves based on origin and endpoints if known
@@ -247,8 +228,6 @@ writeBadFitRegions = False
 findNearestRegionNames = False
 midbrain_test = False
 plotFig = False
-
-addDatapoints = False
 findNuclearProjections = True
 
 writeOut = False if findNearestRegionNames else writeOut
@@ -643,7 +622,6 @@ if midbrain_test:
                 midbrainNucleiZVal.update({region:regionD[region]['centre'][2]})
         except:
             pass
-    j = 10
 
 # ############ add missing cranial nuclei: parse through list to check both L and R are present?
 # ############ L ABDUCENS NUC // L LAT VESTIBULAR NUC (VEN DIV)
@@ -684,7 +662,7 @@ for complexName in complexNames.keys():
         try:
             regionD, namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist = create_multinuclear_group(regionD, complexName, complexNames[complexName], s, midlineGroups, namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist)
         except:
-            j = 10
+            pass
 
 if writeOut:
 
@@ -720,15 +698,12 @@ if writeOut:
     oldChild = region.findChildByName('raw_data')
     region.removeChild(oldChild)
     regionName = findOrCreateFieldStoredString(fm, name="brainstem_region_name")
-    if addDatapoints:
-        nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
-        coordinates = findOrCreateFieldCoordinates(fm, "data_coordinates")
-        nodeType = 'datapoints'
-    else:
-        nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
-        coordinates = findOrCreateFieldCoordinates(fm, "coordinates")
-        nodeType = 'nodes'
-    # coordinates = findOrCreateFieldCoordinates(fm, "coordinates")
+    dpoints = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
+    dcoordinates = findOrCreateFieldCoordinates(fm, "data_coordinates")
+    # else:
+    nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
+    coordinates = findOrCreateFieldCoordinates(fm, "coordinates")
+    nodeType = 'nodes'
     ccount = coordinates.getNumberOfComponents()
     nodetemplate = nodes.createNodetemplate()
     nodetemplate.defineField(coordinates)
@@ -737,6 +712,11 @@ if writeOut:
     nodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS2, 1)
     nodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS3, 1)
     nodetemplate.defineField(regionName)
+    dnodetemplate = dpoints.createNodetemplate()
+    dnodetemplate.defineField(dcoordinates)
+    dnodetemplate.setValueNumberOfVersions(dcoordinates, -1, Node.VALUE_LABEL_VALUE, 1)
+    dnodetemplate.defineField(regionName)
+
     BRNGroup = findOrCreateFieldGroup(fm, 'BRN group')
     BRNPoints = findOrCreateFieldNodeGroup(BRNGroup, nodes).getNodesetGroup()
     tractGroupAll = findOrCreateFieldGroup(fm, 'all tracts and nuclei')
@@ -763,50 +743,43 @@ if writeOut:
             coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, ds[2])
             node = nodeIter.next()
     nodeOffset = nodes.getSize()
+    dnID = 1
 
     ds1 = [1,0,0]
     ds2 = [0,1,0]
     ds3 = [0,0,1]
 
-    all_axes = []
-    brnDict = abbrev_nuclear_names()
+    # brnDict = abbrev_nuclear_names()
     ultimateNodeIDdict = {}
-    if False:
-        for ni, key in enumerate(nuclear_namelist):
-            x = list(regionD[key]['centre'])
-            try:
-                axes = regionD[key]['axes']
-                axes = [ds1, ds2, ds3] if regionD[key]['axes'] == None else axes
-            except:
-                axes = [ds1, ds2, ds3]
-            all_axes.append(axes)
-            nodeIdentifier = nodeOffset + ni + 1
-            nuclearGroup = findOrCreateFieldGroup(fm, 'nuclear group '+key)
-            nuclearPoints = findOrCreateFieldNodeGroup(nuclearGroup, nodes).getNodesetGroup()
+    for ni, key in enumerate(nuclear_namelist):
+        x = list(regionD[key]['centre'])
+        try:
+            axes = regionD[key]['axes']
+            axes = [ds1, ds2, ds3] if regionD[key]['axes'] == None else axes
+        except:
+            axes = [ds1, ds2, ds3]
+        nodeIdentifier = dnID + ni #nodeOffset + ni + 1
+        nuclearGroup = findOrCreateFieldGroup(fm, 'nuclear group '+key)
+        nuclearPoints = findOrCreateFieldNodeGroup(nuclearGroup, dpoints).getNodesetGroup()
 
-            node = nodes.createNode(nodeIdentifier, nodetemplate)
-            try:
-                cache.setNode(node)
-                coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, x)
-                coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
-                coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
-                coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
-                ultimateNodeIDdict[key] = nodeIdentifier
-            except:
-                print('Failed setting node parameters')
-                j = 10
-            # if key in brn_namelist or key in tract_namelist:
-            side = key[:2] if key not in midlineGroups else ''
-            name = key[2:] if key not in midlineGroups else key
-            try:
-                regionName.assignString(cache, side+brnDict[name])
-            except:
-                regionName.assignString(cache, side + name)
-            if key in brn_namelist:
-                BRNPoints.addNode(node)
-            elif key in tract_namelist:
-                tractPointsAll.addNode(node)
-            nuclearPoints.addNode(node)
+        dpoint = dpoints.createNode(nodeIdentifier, dnodetemplate)
+        try:
+            cache.setNode(dpoint)
+            dcoordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, x)
+            # dcoordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
+            # dcoordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
+            # dcoordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
+            ultimateNodeIDdict[key] = nodeIdentifier
+        except:
+            print('Failed setting node parameters')
+        side = key[:2] if key not in midlineGroups else ''
+        name = key[2:] if key not in midlineGroups else key
+        regionName.assignString(cache, side + name)
+        if key in brn_namelist:
+            BRNPoints.addNode(dpoint)
+        elif key in tract_namelist:
+            tractPointsAll.addNode(dpoint)
+        nuclearPoints.addNode(dpoint)
 
     nodeIdentifier = nodes.getSize() + 1
     if not noRawData:#writeBadFitRegions: # or True:
@@ -831,42 +804,19 @@ if writeOut:
                     try:
                         data_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, list(x))
                     except:
-                        j = 10
+                        pass
                     points.addNode(node)
                     nodeIdentifier += 1
             except:
                 print('can\'t create a datapoint for ', name)
         fmCh.endChange()
 
-    # else:
     #########################
     # find projection (elementxi) of nuclear group in mesh
     # nuclear group coordinates are in the region
     #########################
     regionNameStr = regionName.getName()
-    if findNuclearProjections: #addDatapoints:
-        dnID = 1
-        if not addDatapoints:
-            # add datapoints into region for each nuclear group
-            dpoints = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
-            dcoordinates = findOrCreateFieldCoordinates(fm, "data_coordinates")
-            nodeType = 'datapoints'
-            dnodetemplate = dpoints.createNodetemplate()
-            dnodetemplate.defineField(dcoordinates)
-            dnodetemplate.setValueNumberOfVersions(dcoordinates, -1, Node.VALUE_LABEL_VALUE, 1)
-            dnodetemplate.defineField(regionName)
-
-            for nuc in nuclear_namelist[:2]: # trying to speed it up by not doing the whole list
-                cache = fm.createFieldcache()
-                nodeIdentifier = ultimateNodeIDdict[nuc]
-                node = nodes.findNodeByIdentifier(nodeIdentifier)
-                cache.setNode(node)
-                result, x = coordinates.getNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, 3)
-                dpoint = dpoints.createNode(dnID, dnodetemplate)
-                dnID += 1
-                cache.setNode(dpoint)
-                dcoordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, x)
-                regionName.assignString(cache, nuc+'_data')
+    if findNuclearProjections:
 
         toc = time.perf_counter()
         print('elapsed time BEFORE finding ix: ', toc - tic, ' s')
@@ -879,9 +829,8 @@ if writeOut:
         markerInfo['groupName'] = xiGroupRootName
         markerInfo['nameStr'] = regionNameStr
         markerInfo['nodeType'] = nodeType
-        nstart = dnID if not addDatapoints else nodeIdentifier
         nstart = nodes.getSize() + 1
-        region = zinc_write_element_xi_marker_file(region, projected_data, markerInfo, regionD, nstart, ultimateNodeIDdict)
+        region = zinc_write_element_xi_marker_file(region, projected_data, markerInfo, regionD, nstart)
 
     # Line elements for tracts
     if include_cx:
@@ -1000,8 +949,6 @@ if writeOut:
         nonexistentNodeInConnection = []
         for cn in endsDict.keys():
             c_elementIdentifier = 1
-            if 'facial' in cn.lower():
-                j = 10
             cranialNerve = cn[2:].split(' ')[0] if cn not in midlineGroups else cn
             sidestr = cn[:2] if cn not in midlineGroups else ''
             seenOnce = False
@@ -1045,11 +992,7 @@ if writeOut:
                 # create nerve from endsDict
                 missing_nerve = True
                 nuclearPoints = [endsDict[cn][origin] for origin in endsDict[cn] if 'brainstemEnd' not in origin]
-                if False:
-                    originBranchCoincidentPoint = list(np.average(nuclearPoints,0))
-                    nervePoints = [originBranchCoincidentPoint, endsDict[cn]['brainstemEnd']]
-                else:
-                    nervePoints = [endsDict[cn]['brainstemEnd']]
+                nervePoints = [endsDict[cn]['brainstemEnd']]
             if True:
                 xsign = 1 if nervePoints[-1][0] > 0 else -1
                 nervePoints.append([nervePoints[-1][0]+xsign*brainstemEndOffset[0], nervePoints[-1][1], nervePoints[-1][2]])
@@ -1121,8 +1064,7 @@ if writeOut:
                             axes = [ds1, ds2, ds3]
                     except:
                         print('missing glyph ', sidedKey)
-                        j = 10
-                    all_axes.append(axes)
+                        pass
                     cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + key)
                     cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
 
@@ -1141,7 +1083,7 @@ if writeOut:
                             ultimateNodeIDdict.update({cranialNerve:{sidedKey: nodeIdentifier}})
                         nodeIdentifier += 1
                     except:
-                        j = 10
+                        pass
             # ##############################################################################
             # create child  copies of external organs with nodes to make modality connections
             # ##############################################################################
