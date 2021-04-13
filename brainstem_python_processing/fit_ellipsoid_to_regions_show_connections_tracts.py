@@ -11,6 +11,8 @@
 # 11 Mar: updated external connectivity table to show with cranial nerves com file
 # 15 Mar: extend brainstemEnd of nerve outside of the brainstem mesh, to show nerve's entry/exit to/from brainstem structure
 # 22 Mar: find elementxi of nuclear groups within brainstem mesh.
+# 9 Apr : find these embedded regions in brainstem_coordinates field
+# 12 Apr: writing out embedded brainstem coordinates, and not writing (deformed) coordinates and no raw_data
 
 import time
 from ellipsoid_tomjudd import ls_ellipsoid, polyToParams3D, ellipsoid_plot
@@ -18,12 +20,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 from mpl_toolkits.mplot3d import axes3d
-from brainstem_tools import extract_coords_from_opengl, extract_struct_names_opengl, rudimentary_ellipsoid_fit, repeat_points_along_axis, compress_points_along_axis, find_closest_mesh_node, find_closest_end, centroids_of_tract, rotate_about_x_axis, zinc_find_ix_from_real_coordinates, zinc_write_element_xi_marker_file
+from brainstem_tools import extract_coords_from_opengl, extract_struct_names_opengl, rudimentary_ellipsoid_fit, repeat_points_along_axis, compress_points_along_axis, find_closest_mesh_node, find_closest_end, centroids_of_tract, rotate_about_x_axis, zinc_find_ix_from_real_coordinates, zinc_write_element_xi_marker_file, zinc_find_embedded_location
 from opencmiss.zinc.context import Context
 from opencmiss.zinc.element import Element, Elementbasis
 from opencmiss.zinc.field import Field
 from opencmiss.zinc.node import Node
-from opencmiss.utils.zinc.field import findOrCreateFieldCoordinates, findOrCreateFieldGroup, findOrCreateFieldNodeGroup, findOrCreateFieldStoredString
+from opencmiss.utils.zinc.field import findOrCreateFieldCoordinates, findOrCreateFieldGroup, findOrCreateFieldNodeGroup, findOrCreateFieldStoredString, findOrCreateFieldStoredMeshLocation
 import pandas as pd
 from scaffoldmaker.annotation.annotationgroup import AnnotationGroup
 from scipy.spatial import ConvexHull, Delaunay
@@ -124,7 +126,7 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_n
                 # account for possible missing nuclearEndNames. Don't skip over remaining.
                 for nucleus in nuclearEndNames:
                     try:
-                        dict1[s[i]+nucleus] = list(regionD[s[i] + nucleus]['centre'])
+                        dict1[s[i]+nucleus] = list(regionD[s[i] + nucleus])
                     except:
                         print('missing ', nucleus)
 
@@ -151,14 +153,14 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_n
     # construct missing nerves based on origin and endpoints if known
     nerves = [key for key in cranial_nerve_nuclei_list.keys()]
     exitEnd = {}
-    exitEnd['VAGUS'] = [list(np.average([regionD[s[i] + 'INF OLIVE COMPLEX']['centre'], regionD[s[i] + 'INF CEREBELLAR PEDUNCLE']['centre']], 0)) for i in range(2)]
+    exitEnd['VAGUS'] = [list(np.average([regionD[s[i] + 'INF OLIVE COMPLEX'], regionD[s[i] + 'INF CEREBELLAR PEDUNCLE']], 0)) for i in range(2)]
     exitEnd['GLOSSOPHARYNGEAL'] = [[e*1.15 for e in exitEnd['VAGUS'][i]] for i in range(2)]
     # XII exits between inf olive and pyramid (the boundary of the medulla). Offset by radius of ellipsoid in x for now.
     hnerve = 'HYPOGLOSSAL'
-    exitEnd[hnerve] = [list(regionD[s[i] + 'INF OLIVE COMPLEX']['centre']) for i in range(2)]
+    exitEnd[hnerve] = [list(regionD[s[i] + 'INF OLIVE COMPLEX']) for i in range(2)]
     for i in range(2):
         sign = -1 if exitEnd[hnerve][i][0]<0 else 1
-        exitEnd[hnerve][i][0] = sign* (abs(exitEnd[hnerve][i][0]) + regionD[s[i] + 'INF OLIVE COMPLEX']['radii'][0])
+        exitEnd[hnerve][i][0] = sign* (abs(exitEnd[hnerve][i][0]) + regionD[s[i] + 'INF OLIVE COMPLEX'][0] + 1e-3)
 
     for nerve in nerves:
         if nerve in list(exitEnd.keys()):
@@ -217,10 +219,10 @@ cxexFile = cxPath + "tract_connectivity_external_CN.csv"
 structNamePath = '..\\atlasnames_updated.c'
 
 data = {}
+deformedBodyScale = 10.2  # scale from unit brainstem_coordinates to deformed data. HARDCODED: from scaffoldmaker cylinderMesh meshEdits
 
+delete_datapoints = True
 scale_brainstem_mesh = False
-scale = 1.2
-yadj = 0.6
 include_cx = True
 test_OOB = False
 writeOut = True
@@ -269,9 +271,9 @@ for name in tract_namelist0:
 
 templateMeshPath = 'scaffoldfitter_output\\'
 if False:
-    templateMeshFileName = 'brainstem_geofit_645_annoRegions.exf'
+    templateMeshFileName = 'geofit3_668dipped_c5s3.exf' # without body_coordinates
 else:
-    templateMeshFileName = 'geofit3_668dipped_c5s3.exf' # geofit3_668dipped_fit1
+    templateMeshFileName = 'geofit2_6612_bodycoordinates.exf' # with body_coordinates
 templateMeshFile = templateMeshPath+templateMeshFileName
 outFileName = 'ellGlyphs_cxlines_' + templateMeshFileName
 # outFileName = ['ellipsoidGlyphs' + templateMeshFileName,
@@ -401,7 +403,7 @@ cranial_nerve_nuclei_list['GLOSSOPHARYNGEAL'].append(newname)
 #########################
 dataMesh = data['brainSkin']['xyz']
 brainstemHull = Delaunay(dataMesh)
-dataMesh = np.array(dataMesh)
+dataMesh = np.array([[d/deformedBodyScale for d in row] for row in dataMesh])
 btol = 2
 for region in namelist:
     # print('checking if ',region,' is on boundary')
@@ -571,6 +573,7 @@ for region in namelist:
         eldata_straight = rotate_about_x_axis(eldata, th)
         line_rot = centroids_of_tract(np.array(eldata_straight))
         line = rotate_about_x_axis(np.array(line_rot), -th)
+        line = [[l/deformedBodyScale for l in row] for row in line]
         nerve_dict.update({region:line})
         regionD.update({region:{'datapoints':eldata}})
         if False:
@@ -664,9 +667,14 @@ for complexName in complexNames.keys():
         except:
             pass
 
+
+####################################################################################################
+# ZINC    ZINC    # ZINC    ZINC    # ZINC    ZINC    # ZINC    ZINC    # ZINC    ZINC
+####################################################################################################
 if writeOut:
 
-    noRawData = False # don't write out raw_data
+    noRawData = True # don't write out raw_data
+    noRawData = True if delete_datapoints else noRawData
 
     #########################
     # read connectivity files (csv)
@@ -721,9 +729,12 @@ if writeOut:
     BRNPoints = findOrCreateFieldNodeGroup(BRNGroup, nodes).getNodesetGroup()
     tractGroupAll = findOrCreateFieldGroup(fm, 'all tracts and nuclei')
     tractPointsAll = findOrCreateFieldNodeGroup(tractGroupAll, nodes).getNodesetGroup()
+    mesh3d = fm.findMeshByDimension(3)
     cache = fm.createFieldcache()
 
     if scale_brainstem_mesh:
+        scale = 1.2
+        yadj = 0.6
         nodeIter = nodes.createNodeiterator()
         node = nodeIter.next()
         while node.isValid():
@@ -759,8 +770,8 @@ if writeOut:
         except:
             axes = [ds1, ds2, ds3]
         nodeIdentifier = dnID + ni #nodeOffset + ni + 1
-        nuclearGroup = findOrCreateFieldGroup(fm, 'nuclear group '+key)
-        nuclearPoints = findOrCreateFieldNodeGroup(nuclearGroup, dpoints).getNodesetGroup()
+        if not delete_datapoints:
+            nuclearPoints = findOrCreateFieldNodeGroup(findOrCreateFieldGroup(fm, 'nuclear group '+key), dpoints).getNodesetGroup()
 
         dpoint = dpoints.createNode(nodeIdentifier, dnodetemplate)
         try:
@@ -779,7 +790,8 @@ if writeOut:
             BRNPoints.addNode(dpoint)
         elif key in tract_namelist:
             tractPointsAll.addNode(dpoint)
-        nuclearPoints.addNode(dpoint)
+        if not delete_datapoints:
+            nuclearPoints.addNode(dpoint)
 
     nodeIdentifier = nodes.getSize() + 1
     if not noRawData:#writeBadFitRegions: # or True:
@@ -818,9 +830,11 @@ if writeOut:
     regionNameStr = regionName.getName()
     if findNuclearProjections:
 
+        br_coordinates_name = 'brainstem_coordinates'
+        br_coordinates = findOrCreateFieldCoordinates(fm, br_coordinates_name)
         toc = time.perf_counter()
         print('elapsed time BEFORE finding ix: ', toc - tic, ' s')
-        projected_data = zinc_find_ix_from_real_coordinates(region, regionNameStr)
+        projected_data, found_mesh_location = zinc_find_ix_from_real_coordinates(region, regionNameStr)
         toc = time.perf_counter()
         print('elapsed time AFTER finding ix: ', toc - tic, ' s')
 
@@ -830,10 +844,74 @@ if writeOut:
         markerInfo['nameStr'] = regionNameStr
         markerInfo['nodeType'] = nodeType
         nstart = nodes.getSize() + 1
-        region = zinc_write_element_xi_marker_file(region, projected_data, markerInfo, regionD, nstart)
+        if False:
+            region = zinc_write_element_xi_marker_file(region, projected_data, markerInfo, regionD, nstart, coordinates)
+
+        # find embedded location in brainstem_coordinates using elementxi
+        embeddedOrganField = zinc_find_embedded_location(region, found_mesh_location, br_coordinates_name)
+
+        cache = fm.createFieldcache()
+        regionD_brainstemCoordinates = {}
+        for nucReg in projected_data.keys():
+            dpoint = dpoints.findNodeByIdentifier(projected_data[nucReg]['nodeID'])
+            cache.setNode(dpoint)
+            res, xReal = embeddedOrganField.evaluateReal(cache, 4)
+            regionD_brainstemCoordinates.update({nucReg: xReal[:3]})
+
+        # write out to nodes
+        embeddedNodeGroup = findOrCreateFieldGroup(fm, 'embedded regions group')
+        embeddedPoints = findOrCreateFieldNodeGroup(embeddedNodeGroup, nodes).getNodesetGroup()
+        xiNodeLocation = findOrCreateFieldStoredMeshLocation(fm, mesh3d, name="elementxi_location")
+        BRregionName = findOrCreateFieldStoredString(fm, name="embedded_region_name")
+        BRnodetemplate = nodes.createNodetemplate()
+        BRnodetemplate.defineField(br_coordinates)
+        BRnodetemplate.setValueNumberOfVersions(br_coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
+        BRnodetemplate.setValueNumberOfVersions(br_coordinates, -1, Node.VALUE_LABEL_D_DS1, 1)
+        BRnodetemplate.setValueNumberOfVersions(br_coordinates, -1, Node.VALUE_LABEL_D_DS2, 1)
+        BRnodetemplate.setValueNumberOfVersions(br_coordinates, -1, Node.VALUE_LABEL_D_DS3, 1)
+        BRnodetemplate.defineField(coordinates)
+        BRnodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
+        BRnodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS1, 1)
+        BRnodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS2, 1)
+        BRnodetemplate.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS3, 1)
+        BRnodetemplate.defineField(xiNodeLocation)
+        BRnodetemplate.defineField(BRregionName)
+
+        nodeIdentifier = nodes.getSize() + 1
+        for nucReg in regionD_brainstemCoordinates.keys():
+            node = nodes.createNode(nodeIdentifier, BRnodetemplate)
+            cache.setNode(node)
+            xiNodeGroup = findOrCreateFieldGroup(fm, xiGroupRootName + '_' + nucReg)
+            xiNodePoints = findOrCreateFieldNodeGroup(xiNodeGroup, nodes).getNodesetGroup()
+            result = br_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, regionD_brainstemCoordinates[nucReg])
+            result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, list(regionD[nucReg]['centre']))
+            try:
+                axes = regionD[nucReg]['axes']
+                axes = [ds1, ds2, ds3] if regionD[nucReg]['axes'] == None else axes
+            except:
+                axes = [ds1, ds2, ds3]
+            result = br_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, [d/deformedBodyScale for d in axes[0]])
+            result = br_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS2, 1, [d/deformedBodyScale for d in axes[1]])
+            result = br_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, [d/deformedBodyScale for d in axes[2]])
+            result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
+            result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
+            result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
+            elementID = projected_data[nucReg]["elementID"]
+            xi = projected_data[nucReg]["xi"]
+            element = mesh3d.findElementByIdentifier(elementID)
+            result = xiNodeLocation.assignMeshLocation(cache, element, xi)
+            BRregionName.assignString(cache, nucReg)
+            embeddedPoints.addNode(node)
+            xiNodePoints.addNode(node)
+            nodeIdentifier += 1
+
+    # remove datapoints - they were only used for found_mesh_location
+    if delete_datapoints:
+        result = dpoints.destroyAllNodes()
 
     # Line elements for tracts
     if include_cx:
+        coordinates = findOrCreateFieldCoordinates(fm, br_coordinates_name) if findNuclearProjections else findOrCreateFieldCoordinates(fm, "coordinates")
         cache = fm.createFieldcache()
         mesh1d = fm.findMeshByDimension(1)
         elementIdentifier = mesh1d.getSize() + 1
@@ -911,26 +989,23 @@ if writeOut:
         exyz = {}
         ey = 0
         ez = max(dataMesh[:,2]) + 2
-        labeloffset = [10,10,-5]
+        labeloffset = [1,1,-0.5]
         exRange = [min(dataMesh[:,0]) - labeloffset[0], max(dataMesh[:,0]) + labeloffset[0]]
         exs = np.linspace(exRange[0], exRange[1], len(externalOrganList))
-        zradius = max(abs(exRange[0]),abs(exRange[1])) + 0.25
+        zradius = max(abs(exRange[0]),abs(exRange[1])) + 0.025
         ezs = [np.sqrt(zradius**2 - x**2)+labeloffset[2] for x in exs]
         nodetemplateEx = nodes.createNodetemplate()
         nodetemplateEx.defineField(coordinates)
         nodetemplateEx.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
         nodetemplateEx.setValueNumberOfVersions(coordinates, -1, Node.VALUE_LABEL_D_DS1, 1)
-        # nodetemplateEx.defineField(regionExOrganName)
-        # the first set for efferent connections (labelled). The second for afferents (unlabelled)
-        # possess different nodeIdentifiers and derivatives.
-        dsMag = 20
+        dsMag = -1e-1
         externalOrganCoordinates = {}
         for io, organ in enumerate(externalOrganList):
             exyz = [exs[io],ey,ezs[io]]
             node = nodes.createNode(nodeIdentifier, nodetemplateEx)
             cache.setNode(node)
-            xadj = abs(exs[io]/max(exRange))
-            ds = [0,0,-dsMag*xadj]
+            xadj = (exs[io]/max(exRange)) #abs
+            ds = [0,0,dsMag*xadj]
             # the closer to 0 the x value is, the smaller the magnitude.
             result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, exyz)
             result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_D_DS1, 1, ds)
@@ -941,14 +1016,14 @@ if writeOut:
         print('creating external connection elements')
 
         # cranial nerves and their nuclei
-        endsDict = create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_nerve_nuclei_list)
+        endsDict = create_cranial_nerves(cranialDict_raw, regionD_brainstemCoordinates, brainstemCentroid, cranial_nerve_nuclei_list)
         # account for several origins (single line element each)
         existingCranialRegions = []
-        brainstemEndOffset = [5,0,0]
+        brainstemEndOffset = [0.5,0,0]
         nucleiEndPointIDs = {}
         nonexistentNodeInConnection = []
         for cn in endsDict.keys():
-            c_elementIdentifier = 1
+            # c_elementIdentifier = 1
             cranialNerve = cn[2:].split(' ')[0] if cn not in midlineGroups else cn
             sidestr = cn[:2] if cn not in midlineGroups else ''
             seenOnce = False
@@ -958,7 +1033,7 @@ if writeOut:
                 fmCh = childRegion.getFieldmodule()
                 fmCh.beginChange()
                 CNname = findOrCreateFieldStoredString(fmCh, name="cranialnerve_object_name")
-                child_coordinates = findOrCreateFieldCoordinates(fmCh, "coordinates")
+                child_coordinates = findOrCreateFieldCoordinates(fmCh, br_coordinates_name) #coordinates
                 cnodes = fmCh.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
                 nodetemplatechild = cnodes.createNodetemplate()
                 nodetemplatechild.defineField(child_coordinates)
@@ -976,6 +1051,7 @@ if writeOut:
                 result = elementtemplateChild.defineField(child_coordinates, -1, eftChild)
                 ccache = fmCh.createFieldcache()
                 existingCranialRegions.append(cranialNerve)
+                c_elementIdentifier = 1
 
             cranialNodeGroup = findOrCreateFieldGroup(fmCh, sidestr+'points')
             cranialPoints = findOrCreateFieldNodeGroup(cranialNodeGroup, cnodes).getNodesetGroup()
@@ -991,7 +1067,7 @@ if writeOut:
             else:
                 # create nerve from endsDict
                 missing_nerve = True
-                nuclearPoints = [endsDict[cn][origin] for origin in endsDict[cn] if 'brainstemEnd' not in origin]
+                # nuclearPoints = [endsDict[cn][origin] for origin in endsDict[cn] if 'brainstemEnd' not in origin]
                 nervePoints = [endsDict[cn]['brainstemEnd']]
             if True:
                 xsign = 1 if nervePoints[-1][0] > 0 else -1
@@ -1029,14 +1105,19 @@ if writeOut:
             if missing_nerve or len(list(endsDict[cn].keys()))>2:
                 for nucleus in endsDict[cn]:
                     if 'brainstemEnd' not in nucleus:
+                        try:
+                            axes = regionD[nucleus]['axes']
+                            axes = [ds1, ds2, ds3] if regionD[nucleus]['axes'] == None else axes
+                        except:
+                            axes = [ds1, ds2, ds3]
                         cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + nucleus[2:])
                         cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
                         node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
                         ccache.setNode(node)
                         child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_VALUE, 1, endsDict[cn][nucleus])
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, ds1)
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS2, 1, ds2)
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS3, 1, ds3)
+                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
+                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
+                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
                         CNname.assignString(ccache, nucleus)  # key
                         cranialPoints.addNode(node)
                         cnuclearPoints.addNode(node)
@@ -1056,7 +1137,8 @@ if writeOut:
                 for key in cranial_nerve_nuclei_list[cn.split(' ')[1]]:  # enumerate(data.keys()):
                     sidedKey = sidestr+key
                     try:
-                        x = list(regionD[sidedKey]['centre'])
+                        # x = list(regionD[sidedKey]['centre'])
+                        x = list(regionD_brainstemCoordinates[sidedKey])
                         try:
                             axes = regionD[sidedKey]['axes']
                             axes = [ds1, ds2, ds3] if regionD[sidedKey]['axes'] == None else axes
@@ -1101,13 +1183,12 @@ if writeOut:
                 nodetemplateEx.setValueNumberOfVersions(child_coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
                 nodetemplateEx.setValueNumberOfVersions(child_coordinates, -1, Node.VALUE_LABEL_D_DS1, 1)
                 nodetemplateEx.defineField(regionExOrganName)
-                dsMag = 20
                 for io, organ in enumerate(externalOrganList):
                     exyz = externalOrganCoordinates[organ]
                     node = cnodes.createNode(nodeIdentifier, nodetemplateEx)
                     ccache.setNode(node)
-                    xadj = abs(exs[io]/max(exRange))
-                    ds = [0,0,-dsMag*xadj] # if j == 0 else [0,0,dsMag*xadj]
+                    xadj = (exs[io]/max(exRange)) #abs
+                    ds = [0,0,dsMag*xadj] # if j == 0 else [0,0,dsMag*xadj]
                     # the closer to 0 the x value is, the smaller the magnitude.
                     result = child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_VALUE, 1, exyz)
                     result = child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, ds)
@@ -1181,8 +1262,10 @@ if writeOut:
     #----------------------------------------------------
     # write com structureFile to view with all subregions
     #----------------------------------------------------
+    coordinates_str = br_coordinates_name if findNuclearProjections else "coordinates"
     cols = ["gold", "silver", "green", "cyan", "orange", "magenta", "yellow", "white", "red"]
     numcols = len(cols)
+    rs = 1/deformedBodyScale # reciprocal
 
     for j in range(3): #len(outFileName)):
         BRN = True if j == 1 else False
@@ -1190,7 +1273,7 @@ if writeOut:
         ALL = (not BRN) * (not TRACT)
         # namelist_no_tracts = [n for n in namelist if not any(item in n.split(' ') for item in nerveWords)]
         datStr = 'data_' if ALL and findNuclearProjections else ''
-        coordStr = 'nuclearRegion_' if ALL and findNuclearProjections else ''
+        coordStr = 'nuclearRegion_coordinates' if findNuclearProjections else 'coordinates' # if ALL
         domainStr = '_datapoints' if ALL and  findNuclearProjections else '_nodes'
 
         if midbrain_test:
@@ -1202,25 +1285,29 @@ if writeOut:
         with open(outputComFile,'w') as w_out:
             w_out.write('gfx read elements "%s"\n\n'%outFileName)
 
-            if ALL and findNuclearProjections:
-                w_out.write('gfx define field nuclearRegion_coordinates embedded element_xi elementxi_location field coordinates\n\n')
+            if findNuclearProjections:
+                w_out.write('gfx define field nuclearRegion_coordinates embedded element_xi elementxi_location field %s\n\n' %(coordinates_str))
             if writeBadFitRegions:
                 cols = ['red','green','blue']
                 numcols = len(cols)
 
             for i in range(3):
-                w_out.write('gfx define field d%d node_value fe_field coordinates d/ds%d\n' % (i + 1, i + 1))
-            w_out.write('gfx define field orientation_scale composite d1 d2 d3\n\n')
+                w_out.write('gfx define field d%d node_value fe_field %s d/ds%d\n' % (i + 1, coordinates_str,i + 1))
+            w_out.write('gfx define field orientation_scale composite d1 d2 d3\n')
+            for i in range(3):
+                w_out.write('gfx define field dfd%d node_value fe_field coordinates d/ds%d\n' % (i + 1,i + 1))
+            w_out.write('gfx define field deformed_orientation_scale composite dfd1 dfd2 dfd3\n\n')
             w_out.write('gfx modify g_element "/" general clear;\n' )
-            w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup brainstem coordinate coordinates face all tessellation default LOCAL line line_base_size 0 select_on material grey50 selected_material default_selected render_shaded;\n')
-            w_out.write('gfx modify g_element "/" surfaces domain_mesh2d coordinate coordinates face all tessellation default LOCAL select_on invisible material orange selected_material default_selected render_shaded;\n')
+            w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup brainstem coordinate %s face all tessellation default LOCAL line line_base_size 0 select_on material grey50 selected_material default_selected render_shaded;\n' %(coordinates_str))
+            w_out.write('gfx modify g_element "/" surfaces domain_mesh2d coordinate %s face all tessellation default LOCAL select_on invisible material orange selected_material default_selected render_shaded;\n' %(coordinates_str))
 
-            writeRaw = True if (ALL and findNuclearProjections) or (not ALL) else False
+            writeRaw = True if (ALL and findNuclearProjections and not noRawData) or (not ALL) else False
             if not TRACT:
                 if not noRawData:
                     w_out.write('gfx modify g_element /raw_data/ general clear;\n')
                 for c,key in enumerate(nuclearGrouplist):
-                    visibilitystr = ' invisible' if key in tract_namelist and TRACT else '' #if (key in brn_namelist and BRN) else ' invisible' # or not BRN
+                    visibilitystr = ' invisible' if key in tract_namelist and TRACT else ''
+                    # visibilitystr = ' invisible'
                     if c>0:
                         currentName = key[2:]
                         prevName = nuclearGrouplist[c-1][2:]
@@ -1229,48 +1316,43 @@ if writeOut:
                     else:
                         currentCol = cols[c%numcols]
                     if midbrain_test and ALL:
-                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "nuclear group %s" coordinate coordinates tessellation default_points LOCAL glyph sphere size "1*1*1" offset 0,0,0 font default scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (key, visibilitystr, currentCol))
-                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "nuclear group %s" coordinate coordinates tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0,0,0 select_on material default selected_material default_selected render_shaded;\n' %key)
+                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "nuclear group %s" coordinate %s tessellation default_points LOCAL glyph sphere size "1*1*1" offset 0,0,0 font default scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (key, coordinates_str, visibilitystr, currentCol))
+                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "nuclear group %s" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0,0,0 select_on material default selected_material default_selected render_shaded;\n' %(key,coordinates_str))
                         if key[:2] == 'R ':    print('midbrain_test: ',key[2:], 'z: %2.2f'%midbrainNucleiZVal[key])
                     if ALL and findNuclearProjections:
-                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "%s_%s" coordinate %scoordinates tessellation default_points LOCAL glyph sphere size "1*1*1" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (
-                            xiGroupRootName, key, coordStr, visibilitystr, currentCol))
+                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "%s_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation deformed_orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (xiGroupRootName, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
                     elif not ALL:
-                        w_out.write('gfx modify g_element "/" points domain%s subgroup "nuclear group %s" coordinate %scoordinates tessellation default_points LOCAL glyph sphere size "1*1*1" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (domainStr, key, coordStr, visibilitystr, currentCol))
+                        w_out.write('gfx modify g_element "/" points domain%s subgroup "xiGroups_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (domainStr, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
                     if not noRawData and writeRaw:
                         w_out.write('gfx modify g_element /raw_data/ points domain_nodes subgroup "group %s" coordinate data_coordinates tessellation default_points LOCAL glyph diamond size "0.4*0.4*0.4" offset 0,0,0 font default select_on%s material %s selected_material default_selected render_shaded;\n' %(key, visibilitystr, currentCol))
 
             if writeBadFitRegions or BRN:# or TRACT:
-                w_out.write('gfx modify g_element "/" points domain_nodes%s coordinate coordinates tessellation default_points LOCAL glyph none size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0.5,0.5,0 select_on%s material default selected_material default_selected render_shaded;\n\n' %(subgroup_name, visibilitystr))
+                w_out.write('gfx modify g_element "/" points domain_nodes%s coordinate %s tessellation default_points LOCAL glyph none size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0.5,0.5,0 select_on%s material default selected_material default_selected render_shaded;\n\n' %(subgroup_name, coordinates_str, visibilitystr))
 
             if include_cx and BRN:
-                w_out.write('gfx define field ds1 node_value fe_field coordinates d/ds1\n')
-                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup intra-connections coordinate coordinates face all tessellation default LOCAL line line_base_size 0 select_on invisible material gold selected_material default_selected render_shaded;\n')
-                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup afferent-connections coordinate coordinates face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on material blue selected_material default_selected render_shaded;\n')
-                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup efferent-connections coordinate coordinates face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on material red selected_material default_selected render_shaded;\n')
-                w_out.write('gfx modify g_element "/" points domain_nodes subgroup "external organ efferent group" coordinate coordinates tessellation default_points LOCAL glyph none size "0.7*0.7*0.7" offset 0,0,0 scale_factors 0.1*0.01*0.01 font default label external_organ_name label_offset 0,0,0 select_on orientation ds1 material white selected_material default_selected render_shaded;\n')
-                w_out.write('gfx modify g_element "/" points domain_nodes subgroup "external organ afferent group" coordinate coordinates tessellation default_points LOCAL glyph arrow_solid size "0.7*0.7*0.7" offset 0,0,0 scale_factors 0.1*0.01*0.01 font default label_offset 0,0,0 select_on invisible orientation ds1 material cyan selected_material default_selected render_shaded;\n')
+                w_out.write('gfx define field ds1 node_value fe_field %s d/ds1\n' %coordinates_str)
+                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup intra-connections coordinate %s face all tessellation default LOCAL line line_base_size 0 select_on invisible material gold selected_material default_selected render_shaded;\n' %coordinates_str)
 
             if not BRN:
-                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup "nerve tracts" coordinate coordinates face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on invisible material gold selected_material default_selected render_shaded;\n')
-                w_out.write('gfx modify g_element "/" points domain_nodes subgroup "tract group" coordinate coordinates tessellation default_points LOCAL glyph none size "0.7*0.7*0.7" offset 0,0,0 font default label brainstem_region_name label_offset 0,0,0 select_on invisible material gold selected_material default_selected render_shaded;\n')
+                w_out.write('gfx modify g_element "/" lines domain_mesh1d subgroup "nerve tracts" coordinate %s face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on invisible material gold selected_material default_selected render_shaded;\n' %coordinates_str)
+                w_out.write('gfx modify g_element "/" points domain_nodes subgroup "tract group" coordinate %s tessellation default_points LOCAL glyph none size "0.7*0.7*0.7" offset 0,0,0 font default label brainstem_region_name label_offset 0,0,0 select_on invisible material gold selected_material default_selected render_shaded;\n\n' %coordinates_str)
 
             visibilitystr = ' invisible' if BRN else ''
-            if TRACT or BRN:
+            if TRACT:# or BRN:
                 for ic, cn in enumerate(existingCranialRegions):
                     for i in range(3):
-                        w_out.write('gfx define field %s/d%d node_value fe_field coordinates d/ds%d\n' % (cn, i + 1, i + 1))
+                        w_out.write('gfx define field %s/d%d node_value fe_field %s d/ds%d\n' % (cn, i + 1, coordinates_str, i + 1))
                     w_out.write('gfx define field %s/orientation_scale composite d1 d2 d3\n\n' %cn)
                     w_out.write('gfx modify g_element "/%s/" general clear;\n' %cn)
                     sides = ['L ', 'R '] if cn not in midlineGroups else ''
                     for sidestr in sides:
-                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "%spoints" coordinate coordinates tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label cranialnerve_object_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, visibilitystr, cols[ic%numcols]))
-                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup "%snerves" coordinate coordinates face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, visibilitystr, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "%spoints" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label cranialnerve_object_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup "%snerves" coordinate %s face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
                     for nucleus in cranial_nerve_nuclei_list[cn.split(' ')[0]]:
-                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "nuclear group %s" coordinate coordinates tessellation default_points LOCAL glyph sphere size "1*1*1" offset 0,0,0 font default orientation orientation_scale scale_factors "0.2*0.2*0.2" select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, nucleus, visibilitystr, cols[ic%numcols]))
-                    w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "external organ group" coordinate coordinates tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label external_organ_name label_offset 0,0,0 select_on material %s selected_material default_selected render_shaded;\n' %(cn, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "nuclear group %s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "0.2*0.2*0.2" select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, nucleus, coordinates_str, rs,rs,rs,visibilitystr, cols[ic%numcols]))
+                    w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "external organ group" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label external_organ_name label_offset 0,0,0 select_on material %s selected_material default_selected render_shaded;\n' %(cn, coordinates_str, cols[ic%numcols]))
                     for im, mode in enumerate(modes):
-                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup %s-connections coordinate coordinates face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on material %s selected_material default_selected render_shaded;\n' % (cn, mode, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup %s-connections coordinate %s face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on material %s selected_material default_selected render_shaded;\n' % (cn, mode, coordinates_str, cols[ic%numcols]))
 
             w_out.write("\ngfx create window\n")
             w_out.write("gfx edit scene\n")
