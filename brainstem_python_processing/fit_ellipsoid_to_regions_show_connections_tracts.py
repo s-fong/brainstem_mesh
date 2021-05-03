@@ -9,7 +9,7 @@
 # 3 Mar: show nerves/tracts as lines, not single glyphs to fit an ellipsoid to.
 # 4 Mar: adding cranial nerves that do not exist from data (e.g. CN X)
 # 11 Mar: updated external connectivity table to show with cranial nerves com file
-# 15 Mar: extend brainstemEnd of nerve outside of the brainstem mesh, to show nerve's entry/exit to/from brainstem structure
+# 15 Mar: extend emergentEnd of nerve outside of the brainstem mesh, to show nerve's entry/exit to/from brainstem structure
 # 22 Mar: find elementxi of nuclear groups within brainstem mesh.
 # 9 Apr : find these embedded regions in brainstem_coordinates field
 # 12 Apr: writing out embedded brainstem coordinates, and not writing (deformed) coordinates and no raw_data
@@ -115,7 +115,7 @@ def nerve_modality():
         'SVE':	['NA', 'FACIAL NUC','MOTOR NUC OF V'] }
     return modes
 
-def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_nerve_nuclei_list):
+def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, midPonsMedD, cranial_nerve_nuclei_list):
 
     def labelTractEnds(nerve, cranialDict_raw, nuclearEndNames, exitEnd = []):
         dict = {}
@@ -132,15 +132,11 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_n
 
                 if exitEnd:
                     # nerve is missing, so add a point for the end exiting brainstem
-                    dict2 = {'brainstemEnd': exitEnd[i]}
+                    dict2 = {'emergentEnd': exitEnd[i]}
                 else:
                     _, ind = find_closest_end(cranialDict_raw[s[i] + nerve], brainstemCentroid)
-                    dict2 = {'brainstemEnd':
+                    dict2 = {'emergentEnd':
                            cranialDict_raw[s[i] + nerve][len(cranialDict_raw[s[i] + nerve]) - ind - 1]}
-                # artificially make the brainstem end of nerve further away from brainstemCentroid by some arbitrary offset
-                if False:
-                    sign = [1 if dict2['brainstemEnd'][k] > 0 else -1 for k in range(3)]
-                    dict2['brainstemEnd'] = [d+(sign[id]*offset[id]) for id, d in enumerate(dict2['brainstemEnd'])]
                 dict1.update(dict2)
                 dict[s[i]+nerve] = dict1.copy()
         except:
@@ -148,13 +144,21 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, cranial_n
         return dict
 
     endsDict = {}
+    xedgeCentroid = [midPonsMedD['xedgeCentroid'][0],0,0]
+    z_ponsMedulla = (max(midPonsMedD['pons']) + min(midPonsMedD['medulla oblongata'])) / 2
+    xoff = [brainstemCentroid[0] * 0.2 for m in [0.2, 0.5, 0.9]]
 
     # make connections for nerve+nuc that have differing root names
     # construct missing nerves based on origin and endpoints if known
     nerves = [key for key in cranial_nerve_nuclei_list.keys()]
+    sign = [-1, 1]
     exitEnd = {}
-    exitEnd['VAGUS'] = [list(np.average([regionD[s[i] + 'INF OLIVE COMPLEX'], regionD[s[i] + 'INF CEREBELLAR PEDUNCLE']], 0)) for i in range(2)]
-    exitEnd['GLOSSOPHARYNGEAL'] = [[e*1.15 for e in exitEnd['VAGUS'][i]] for i in range(2)]
+    exitEnd['TRIGEMINAL'] = [[brainstemCentroid[i] + (sign[j]*xedgeCentroid[i]) for i in range(3)] for j in range(2)]
+    exitEnd['ABDUCENS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.2), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['FACIAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.8), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['VESTIBULOCOCHLEAR'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.9), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['GLOSSOPHARYNGEAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.99), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['VAGUS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.99), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)] # 0.8 or 1.2?
     # XII exits between inf olive and pyramid (the boundary of the medulla). Offset by radius of ellipsoid in x for now.
     hnerve = 'HYPOGLOSSAL'
     exitEnd[hnerve] = [list(regionD[s[i] + 'INF OLIVE COMPLEX']) for i in range(2)]
@@ -284,6 +288,7 @@ outline = False
 data = extract_coords_from_opengl(path, structureFile, outline, data, structNames, wantNorm = 0)
 
 brainstemCentroid = np.average(data['brainSkin']['xyz'],0)
+
 s = ['L ','R ']
 
 # ####################################
@@ -425,6 +430,13 @@ num = max(dat[:,2]) - min(dat[:,2])
 denom = max(dat[:,1]) - min(dat[:,1])
 th = math.atan(num/denom)
 dat_straight = rotate_about_x_axis(dat, th)
+
+# find the xedge distance at a given z value
+brainstemRot = np.array(rotate_about_x_axis(data['brainSkin']['xyz'], th))
+brainstemRot = brainstemRot[brainstemRot[:, 2].argsort()]
+brainstemRotCentroid = np.average(brainstemRot,0)
+brainstemRot_midZlevel = np.array([b for b in brainstemRot if abs(b[2]-brainstemRotCentroid[2]) < 0.1])
+xedgeCentroid = [max(brainstemRot_midZlevel[ :,k])/deformedBodyScale for k in range(3)]
 
 #########################
 # fit ellipsoid to datapoints
@@ -732,6 +744,34 @@ if writeOut:
     mesh3d = fm.findMeshByDimension(3)
     cache = fm.createFieldcache()
 
+    # extract group info for midbrain, pons, medulla
+    groupNames = ['midbrain','pons','medulla oblongata']
+    midPonsMedD = {c:[] for c in groupNames}
+    for groupName in groupNames:
+        group = fm.findFieldByName(groupName).castGroup()
+        nodeGroup = group.getFieldNodeGroup(nodes)
+        gnodes = nodeGroup.getNodesetGroup()
+        nodeIter = gnodes.createNodeiterator()
+        node = nodeIter.next()
+        groupSize = 0
+        xyzGroups = []
+        groupNodeList = []
+        zBounds = [10000, -10000]    #[zmin, zmax]
+        while node.isValid():
+            cache.setNode(node)
+            nodeIdentifier = node.getIdentifier()
+            result, x = coordinates.getNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, 3)
+            x = [ix/deformedBodyScale for ix in x]
+            # xyzGroups[subgroup].append(x)
+            groupNodeList.append(nodeIdentifier)
+            node = nodeIter.next()
+            groupSize += 1
+            # find z values of boundaries of midbrain/pons/medulla
+            if x[2] < zBounds[0]: zBounds[0] = x[2]
+            if x[2] > zBounds[1]: zBounds[1] = x[2]
+        midPonsMedD[groupName] = zBounds
+    midPonsMedD['xedgeCentroid'] = xedgeCentroid
+
     if scale_brainstem_mesh:
         scale = 1.2
         yadj = 0.6
@@ -834,7 +874,7 @@ if writeOut:
         br_coordinates = findOrCreateFieldCoordinates(fm, br_coordinates_name)
         toc = time.perf_counter()
         print('elapsed time BEFORE finding ix: ', toc - tic, ' s')
-        projected_data, found_mesh_location = zinc_find_ix_from_real_coordinates(region, regionNameStr)
+        projected_data, found_mesh_location = zinc_find_ix_from_real_coordinates(region, regionNameStr, 'coordinates')
         toc = time.perf_counter()
         print('elapsed time AFTER finding ix: ', toc - tic, ' s')
 
@@ -926,10 +966,16 @@ if writeOut:
         tractPoints = findOrCreateFieldNodeGroup(tractNodeGroup, nodes).getNodesetGroup()
         tractMeshGroup = AnnotationGroup(region, ('nerve tracts', None)).getMeshGroup(mesh1d)
 
+        # fiducial markers of emergent points of cranial nerves from brainstem
+        markerGroup = findOrCreateFieldGroup(fm, 'marker')
+        markerPoints = findOrCreateFieldNodeGroup(markerGroup, nodes).getNodesetGroup()
+        emergentMarkerGroup = findOrCreateFieldGroup(fm, 'emergentMarker')
+        emergentMarkerPoints = findOrCreateFieldNodeGroup(emergentMarkerGroup, nodes).getNodesetGroup()
+
         cranialNameDict = cranial_nerve_names()
         cranialNerve_names = [cranialNameDict[key] for key in cranialNameDict]
         # some must be created from information from literature...
-        # ... some tracts are present in data (nerve_dict), which must be distinct from other non-cranial nerve tracts.
+        # some tracts are present in data (nerve_dict), which must be distinct from other non-cranial nerve tracts.
         cranialDict_raw = {}
         nodeIdentifier = nodes.getSize() + 1
         for name in nerve_dict.keys():
@@ -1016,14 +1062,15 @@ if writeOut:
         print('creating external connection elements')
 
         # cranial nerves and their nuclei
-        endsDict = create_cranial_nerves(cranialDict_raw, regionD_brainstemCoordinates, brainstemCentroid, cranial_nerve_nuclei_list)
-        # account for several origins (single line element each)
+        brainstemCentroid = [b/deformedBodyScale for b in brainstemCentroid]
+        endsDict = create_cranial_nerves(cranialDict_raw, regionD_brainstemCoordinates, brainstemCentroid, midPonsMedD, cranial_nerve_nuclei_list)
+
         existingCranialRegions = []
-        brainstemEndOffset = [0.5,0,0]
+        emergentEndOffset = [0.4, 0.4, 0] #[0.5,0,0]
         nucleiEndPointIDs = {}
         nonexistentNodeInConnection = []
+        emergentNerveCoordinate = {}
         for cn in endsDict.keys():
-            # c_elementIdentifier = 1
             cranialNerve = cn[2:].split(' ')[0] if cn not in midlineGroups else cn
             sidestr = cn[:2] if cn not in midlineGroups else ''
             seenOnce = False
@@ -1033,7 +1080,7 @@ if writeOut:
                 fmCh = childRegion.getFieldmodule()
                 fmCh.beginChange()
                 CNname = findOrCreateFieldStoredString(fmCh, name="cranialnerve_object_name")
-                child_coordinates = findOrCreateFieldCoordinates(fmCh, br_coordinates_name) #coordinates
+                child_coordinates = findOrCreateFieldCoordinates(fmCh, br_coordinates_name)
                 cnodes = fmCh.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
                 nodetemplatechild = cnodes.createNodetemplate()
                 nodetemplatechild.defineField(child_coordinates)
@@ -1061,17 +1108,17 @@ if writeOut:
             nodeIdentifierNerveConnection = []
             if cn in list(cranialDict_raw.keys()) and len(endsDict[cn]) <=2 : # nerve may not be present in cranialDict_raw
                 nervePoints = cranialDict_raw[cn]
-                if all([endsDict[cn]['brainstemEnd'][k] == nervePoints[0][k] for k in range(3)]):
+                if all([endsDict[cn]['emergentEnd'][k] == nervePoints[0][k] for k in range(3)]):
                     nervePoints.reverse()
-                nervePoints = [list(endsDict[cn][key]) for key in endsDict[cn].keys() if 'brainstemEnd' not in key]  + nervePoints
+                nervePoints = [list(endsDict[cn][key]) for key in endsDict[cn].keys() if 'emergentEnd' not in key]  + nervePoints
             else:
                 # create nerve from endsDict
                 missing_nerve = True
-                # nuclearPoints = [endsDict[cn][origin] for origin in endsDict[cn] if 'brainstemEnd' not in origin]
-                nervePoints = [endsDict[cn]['brainstemEnd']]
-            if True:
-                xsign = 1 if nervePoints[-1][0] > 0 else -1
-                nervePoints.append([nervePoints[-1][0]+xsign*brainstemEndOffset[0], nervePoints[-1][1], nervePoints[-1][2]])
+                nervePoints = [endsDict[cn]['emergentEnd']]
+            xsign = [1 if nervePoints[-1][k] > 0 else -1 for k in range(3)]
+            emergentNerveCoordinate.update({cn:[nervePoints[-1][k]+xsign[k]*emergentEndOffset[k] for k in range(3)]})
+            nervePoints.append(emergentNerveCoordinate[cn])
+
             nodeIdentifiers = []
             for ix, x in enumerate(nervePoints):
                 node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
@@ -1084,7 +1131,8 @@ if writeOut:
                 if ix > 0:
                     nodeIdentifiers.append(nodeIdentifier)
                     if ix == len(nervePoints) - 1:
-                        CNname.assignString(ccache, sidestr+'brainstemBoundaryEnd')  # key # ' '
+                        CNname.assignString(ccache, sidestr+'emergentEnd')
+                        markerPoints.addNode(node)
                     else:
                         CNname.assignString(ccache, ' ')
                     enodes = [nodeIdentifier - 1, nodeIdentifier]
@@ -1092,7 +1140,7 @@ if writeOut:
                     result = element.setNodesByIdentifier(eftChild, enodes)
                     cranialMeshGroup.addElement(element)
                     c_elementIdentifier += 1
-                else: # ix == 0
+                else:
                     if not missing_nerve:
                         CNname.assignString(ccache, [e for e in endsDict[cn].keys() if 'brainstem' not in e][0])
                     else:
@@ -1104,12 +1152,16 @@ if writeOut:
 
             if missing_nerve or len(list(endsDict[cn].keys()))>2:
                 for nucleus in endsDict[cn]:
-                    if 'brainstemEnd' not in nucleus:
-                        try:
-                            axes = regionD[nucleus]['axes']
-                            axes = [ds1, ds2, ds3] if regionD[nucleus]['axes'] == None else axes
-                        except:
+                    if 'emergentEnd' not in nucleus:
+                        if True:
                             axes = [ds1, ds2, ds3]
+                            axes = [[0,0,0]]*3
+                        else:
+                            try:
+                                axes = regionD[nucleus]['axes']
+                                axes = [ds1, ds2, ds3] if regionD[nucleus]['axes'] == None else axes
+                            except:
+                                axes = [ds1, ds2, ds3]
                         cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + nucleus[2:])
                         cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
                         node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
@@ -1125,28 +1177,29 @@ if writeOut:
                             ultimateNodeIDdict[cranialNerve].update({nucleus: nodeIdentifier})
                         except:
                             ultimateNodeIDdict.update({cranialNerve: {nucleus: nodeIdentifier}})
-                        enodes = [nodeIdentifier, nodeIdentifierNerveConnection]
+                        enodes = [nodeIdentifier, nodeIdentifierNerveConnection] if sidestr == 'R ' else [nodeIdentifierNerveConnection, nodeIdentifier]
                         element = cmesh1d.createElement(c_elementIdentifier, elementtemplateChild)
                         result = element.setNodesByIdentifier(eftChild, enodes)
                         cranialMeshGroup.addElement(element)
                         c_elementIdentifier += 1
                         nodeIdentifier += 1
-
             else:
                 # add glyph of nuclear point (repeat of nuclearpoints code)
-                for key in cranial_nerve_nuclei_list[cn.split(' ')[1]]:  # enumerate(data.keys()):
+                for key in cranial_nerve_nuclei_list[cn.split(' ')[1]]:
                     sidedKey = sidestr+key
                     try:
-                        # x = list(regionD[sidedKey]['centre'])
                         x = list(regionD_brainstemCoordinates[sidedKey])
-                        try:
-                            axes = regionD[sidedKey]['axes']
-                            axes = [ds1, ds2, ds3] if regionD[sidedKey]['axes'] == None else axes
-                        except:
+                        if True:
                             axes = [ds1, ds2, ds3]
+                            axes = [[0,0,0]]*3
+                        else:
+                            try:
+                                axes = regionD[sidedKey]['axes']
+                                axes = [ds1, ds2, ds3] if regionD[sidedKey]['axes'] == None else axes
+                            except:
+                                axes = [ds1, ds2, ds3]
                     except:
                         print('missing glyph ', sidedKey)
-                        pass
                     cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + key)
                     cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
 
@@ -1227,8 +1280,8 @@ if writeOut:
                                         totalNodes.append(enodes[1])
                                         for hn in range(1, len(totalNodes)):
                                             element = cmesh1d.createElement(c_elementIdentifier, elementtemplateChild)
-                                            result = element.setNodesByIdentifier(eftChild,
-                                                                                  [totalNodes[hn - 1], totalNodes[hn]])
+                                            eenodes = [totalNodes[hn - 1], totalNodes[hn]]
+                                            result = element.setNodesByIdentifier(eftChild, eenodes)
                                             c_elementIdentifier += 1
                                             modeMeshGroups[imode].addElement(element)
                             # if linkExists:
@@ -1249,7 +1302,50 @@ if writeOut:
             if not seenOnce or cn in midlineGroups:
                 fmCh.endChange()
 
-            # fmCh.endChange()
+        # create elementxi for emergent end to be a marker
+        dpoints = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
+        markerName = findOrCreateFieldStoredString(fm, name="marker_name")
+        d_coordinates = findOrCreateFieldCoordinates(fm, "data_coordinates")
+        dnodetemplate = dpoints.createNodetemplate()
+        dnodetemplate.defineField(d_coordinates)
+        dnodetemplate.setValueNumberOfVersions(d_coordinates, -1, Node.VALUE_LABEL_VALUE, 1)
+        dnodetemplate.defineField(markerName)
+        xiNodeLocation = findOrCreateFieldStoredMeshLocation(fm, mesh3d, name="marker_location")
+        xiNodeTemplate = nodes.createNodetemplate()
+        xiNodeTemplate.defineField(markerName)
+        xiNodeTemplate.defineField(xiNodeLocation)
+
+        dnodeIdentifier = 1
+        emergentDict = {}
+        names = [list(endsDict.keys())[0]] if False else endsDict.keys()
+        print('findMeshLocation of cranial nerve emergents')
+        for nerveName in names:
+            print(nerveName)
+            node = dpoints.createNode(dnodeIdentifier, dnodetemplate)
+            cache.setNode(node)
+            addEnd = endsDict[nerveName]['emergentEnd'].copy()
+            xsign = [1 if addEnd[k] > 0 else -1 for k in range(3)]
+            # addEnd = [addEnd[k] + (xsign[k]*emergentEndOffset[k]) for k in range(3)]
+            addEnd = emergentNerveCoordinate[nerveName]
+            d_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, addEnd)
+            markerName.assignString(cache, nerveName)
+            # tup, _ = zinc_find_ix_from_real_coordinates(region, markerName.getName(), 'brainstem_coordinates', emergent=1)
+            # emergentDict.update(tup)
+            dnodeIdentifier += 1
+        tup, _ = zinc_find_ix_from_real_coordinates(region, markerName.getName(), 'brainstem_coordinates', emergent=1)
+        emergentDict.update(tup)
+
+        for nerveName in names:
+            node = nodes.createNode(nodeIdentifier, xiNodeTemplate)
+            cache.setNode(node)
+            element = mesh3d.findElementByIdentifier(emergentDict[nerveName]['elementID'])
+            result = xiNodeLocation.assignMeshLocation(cache, element, emergentDict[nerveName]['xi'])
+            markerName.assignString(cache, nerveName+'_emergentEnd')
+            emergentMarkerPoints.addNode(node)
+            nodeIdentifier += 1
+
+        if False:
+            result = dpoints.destroyAllNodes()
 
     fm.endChange()
     region.writeFile(outFile)
@@ -1263,6 +1359,7 @@ if writeOut:
     # write com structureFile to view with all subregions
     #----------------------------------------------------
     coordinates_str = br_coordinates_name if findNuclearProjections else "coordinates"
+    # coordinates_str = "coordinates"
     cols = ["gold", "silver", "green", "cyan", "orange", "magenta", "yellow", "white", "red"]
     numcols = len(cols)
     rs = 1/deformedBodyScale # reciprocal
@@ -1291,6 +1388,7 @@ if writeOut:
                 cols = ['red','green','blue']
                 numcols = len(cols)
 
+            w_out.write('gfx define field marker_coordinates embedded element_xi marker_location field brainstem_coordinates\n')
             for i in range(3):
                 w_out.write('gfx define field d%d node_value fe_field %s d/ds%d\n' % (i + 1, coordinates_str,i + 1))
             w_out.write('gfx define field orientation_scale composite d1 d2 d3\n')
@@ -1325,7 +1423,8 @@ if writeOut:
                         w_out.write('gfx modify g_element "/" points domain%s subgroup "xiGroups_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (domainStr, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
                     if not noRawData and writeRaw:
                         w_out.write('gfx modify g_element /raw_data/ points domain_nodes subgroup "group %s" coordinate data_coordinates tessellation default_points LOCAL glyph diamond size "0.4*0.4*0.4" offset 0,0,0 font default select_on%s material %s selected_material default_selected render_shaded;\n' %(key, visibilitystr, currentCol))
-
+            else:
+                w_out.write('gfx modify g_element "/" points domain_nodes subgroup emergentMarker coordinate marker_coordinates tessellation default_points LOCAL glyph sphere size "0.1*0.1*0.1" offset 0,0,0 font default label marker_name label_offset 0,0,0 select_on material yellow selected_material default_selected render_shaded;\n')
             if writeBadFitRegions or BRN:# or TRACT:
                 w_out.write('gfx modify g_element "/" points domain_nodes%s coordinate %s tessellation default_points LOCAL glyph none size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0.5,0.5,0 select_on%s material default selected_material default_selected render_shaded;\n\n' %(subgroup_name, coordinates_str, visibilitystr))
 
@@ -1340,6 +1439,9 @@ if writeOut:
             visibilitystr = ' invisible' if BRN else ''
             if TRACT:# or BRN:
                 for ic, cn in enumerate(existingCranialRegions):
+
+                    visibilitystr = ' invisible' if BRN else ''
+
                     for i in range(3):
                         w_out.write('gfx define field %s/d%d node_value fe_field %s d/ds%d\n' % (cn, i + 1, coordinates_str, i + 1))
                     w_out.write('gfx define field %s/orientation_scale composite d1 d2 d3\n\n' %cn)
@@ -1348,11 +1450,14 @@ if writeOut:
                     for sidestr in sides:
                         w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "%spoints" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label cranialnerve_object_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
                         w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup "%snerves" coordinate %s face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
+
+                    visibilitystr = ' invisible'
+
                     for nucleus in cranial_nerve_nuclei_list[cn.split(' ')[0]]:
                         w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "nuclear group %s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "0.2*0.2*0.2" select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, nucleus, coordinates_str, rs,rs,rs,visibilitystr, cols[ic%numcols]))
-                    w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "external organ group" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label external_organ_name label_offset 0,0,0 select_on material %s selected_material default_selected render_shaded;\n' %(cn, coordinates_str, cols[ic%numcols]))
+                    w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "external organ group" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label external_organ_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, coordinates_str, visibilitystr, cols[ic%numcols]))
                     for im, mode in enumerate(modes):
-                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup %s-connections coordinate %s face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on material %s selected_material default_selected render_shaded;\n' % (cn, mode, coordinates_str, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup %s-connections coordinate %s face all tessellation default LOCAL line_width 1 line line_base_size 0 select_on%s material %s selected_material default_selected render_shaded;\n' % (cn, mode, coordinates_str, visibilitystr, cols[ic%numcols]))
 
             w_out.write("\ngfx create window\n")
             w_out.write("gfx edit scene\n")
