@@ -49,21 +49,18 @@ class verticesParams:
                                          self.dataVectorNorms[self.idataNormLargest]
 
 
-def extend_namelist_LR(group, midlineGroups, list=[], list2=[], list3=[], list4=[]):
+def extend_namelist_LR(group, midlineGroups, lists=[[]]):
+    newlists = []
     side_present = True if group[:2] == 'L ' or group[:2] == 'R ' else False
-    if group not in midlineGroups and not side_present:
-        list.extend(['L '+group, 'R '+group])
-        list2.extend(['L '+group, 'R '+group])
-        list3.extend(['L '+group, 'R '+group])
-        list4.extend(['L '+group, 'R '+group])
-    else:
-        list.append(group)
-        list2.append(group)
-        list3.append(group)
-        list4.append(group)
+    for list in lists:
+        if group not in list and 'L '+group not in list:
+            if group not in midlineGroups and not side_present: # and not in list:
+                list.extend(['L '+group, 'R '+group])
+            else:
+                list.extend([group])
+        newlists.append(list)
+    return newlists
 
-        # print('Added ', group)
-    return list, list2, list3, list4
 
 def abbrev_nuclear_names():
     # for a given name, manually type the abbreviation.
@@ -177,7 +174,7 @@ def create_multinuclear_group(regionD, bigName, sub, side, midlineGroups, nameli
     lens = len(sub)
     xyz = [[sum([regionD[side[i]+sub[isub]]['centre'][k] for isub in range(lens)]) / lens for k in range(3)] for i in range(2)]
     regionD.update({'L ' + bigName: {'centre': np.array(xyz[0])}, 'R ' + bigName: {'centre': np.array(xyz[1])}})
-    namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist = extend_namelist_LR(bigName, midlineGroups, namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist)
+    [namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist] = extend_namelist_LR(bigName, midlineGroups, [namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist])
 
     return (regionD, namelist, tract_namelist, addedObjectAsPoint, nuclear_namelist)
 
@@ -249,7 +246,7 @@ brn_namelist0 = ['CENTRAL CANAL',
                 ]
 brn_namelist = []
 for name in brn_namelist0:
-    brn_namelist,_,_, _ = extend_namelist_LR(name, midlineGroups, brn_namelist)
+    [brn_namelist] = extend_namelist_LR(name, midlineGroups, [brn_namelist])
 cranial_nerve_nuclei_list = {
     'OCULOMOTOR': ['EDINGER-WESTPHAL NUC','OCULOMOTOR NUC'],
     'TROCHLEAR': ['TROCHLEAR NUC'],
@@ -270,7 +267,7 @@ for key in cranial_nerve_nuclei_list.keys():
             tract_namelist0.append(nucleus)
 tract_namelist = []
 for name in tract_namelist0:
-    tract_namelist,_,_,_ = extend_namelist_LR(name, midlineGroups, tract_namelist)
+    [tract_namelist] = extend_namelist_LR(name, midlineGroups, [tract_namelist])
 
 templateMeshPath = 'scaffoldfitter_output\\'
 if False:
@@ -300,7 +297,7 @@ NTSxyz = [data['L NUC TRACTUS SOLITARIUS']['xyz'], data['R NUC TRACTUS SOLITARIU
 DRGxyz = [np.average(dnts,0) for dnts in NTSxyz]
 DRGname = 'DORSAL RESPIRATORY GROUP'
 data.update({'L '+DRGname: {'xyz':list(DRGxyz[0])}, 'R '+DRGname: {'xyz':list(DRGxyz[1])}})
-namelist, brn_namelist, addedObjectAsPoint,_ = extend_namelist_LR(DRGname, midlineGroups,namelist, brn_namelist, addedObjectAsPoint)
+[namelist, brn_namelist, addedObjectAsPoint] = extend_namelist_LR(DRGname, midlineGroups,[namelist, brn_namelist, addedObjectAsPoint])
 # ############ parabrachial nuclei: surround superior cerebellar peduncle. Between kolliker-fuse and dorsal tegmental nucleus
 dPB = 0.1
 LPBxyz = [data['L SUP CEREBELLAR PEDUNCLE']['xyz'], data['R SUP CEREBELLAR PEDUNCLE']['xyz']]
@@ -316,8 +313,8 @@ LPBname = 'LATERAL PARABRACHIAL NUCLEUS'
 MPBname = 'MEDIAL PARABRACHIAL NUCLEUS'
 data.update({'L '+LPBname: {'xyz':list(LPBxyz[0])}, 'R '+LPBname: {'xyz':list(LPBxyz[1])}})
 data.update({'L '+MPBname: {'xyz':list(MPBxyz[0])}, 'R '+MPBname: {'xyz':list(MPBxyz[1])}})
-namelist, brn_namelist, _,_ = extend_namelist_LR(LPBname, midlineGroups, namelist, brn_namelist)
-namelist, brn_namelist, _,_ = extend_namelist_LR(MPBname, midlineGroups, namelist, brn_namelist)
+[namelist, brn_namelist] = extend_namelist_LR(LPBname, midlineGroups, [namelist, brn_namelist])
+[namelist, brn_namelist] = extend_namelist_LR(MPBname, midlineGroups, [namelist, brn_namelist])
 # ############ PRG PONTINE RESPIRATORY GROUP PLACEHOLDER POINT
 PRGname = 'PONTINE RESPIRATORY GROUP'
 KFname = 'KOLLIKER-FUSE NUC'
@@ -326,7 +323,7 @@ PRGxyz = [[(np.average([x[k] for x in LPBxyz[i]],0) +
             np.average([x[k] for x in MPBxyz[i]],0) +
             KFxyz[i][k])/3 for k in range(3)] for i in range(2)]
 data.update({'L '+PRGname: {'xyz':list(PRGxyz[0])}, 'R '+PRGname: {'xyz':list(PRGxyz[1])}})
-namelist, brn_namelist, addedObjectAsPoint,_ = extend_namelist_LR(PRGname, midlineGroups, namelist, brn_namelist, addedObjectAsPoint)
+[namelist, brn_namelist, addedObjectAsPoint] = extend_namelist_LR(PRGname, midlineGroups, [namelist, brn_namelist, addedObjectAsPoint])
 # ############ retrotrapezoid nucleus: thin  sheet under the facial nucleus
 dRTN = 0.2
 RTNxyz = [data['L FACIAL NUC']['xyz'], data['R FACIAL NUC']['xyz']]
@@ -335,7 +332,7 @@ RTNxyz = [[x for x in RTNxyz[i] if abs(x[0]) > abs(FNcentroid[i][1])*1.5] for i 
 RTNxyz = [RTNxyz[i] + [[p[0]-(dRTN*(i==0))+(dRTN*(i==1)), p[1], p[2]] for p in RTNxyz[i]] for i in range(2)]
 RTNname = 'RETROTRAPEZOID NUCLEUS/PARAFACIAL NUCLEUS'
 data.update({'L '+RTNname: {'xyz':list(RTNxyz[0])}, 'R '+RTNname: {'xyz':list(RTNxyz[1])}})
-namelist, brn_namelist, _,_ = extend_namelist_LR(RTNname, midlineGroups, namelist, brn_namelist)
+[namelist, brn_namelist] = extend_namelist_LR(RTNname, midlineGroups, [namelist, brn_namelist])
 # ############ VENTRAL RESPIRATORY COLUMN:
 # BEGIN: level of rostral end of NUCLEUS AMBIGUUS (more ventral) (Botz here)
 # END:   rostral end of NUCLEUS RETROAMBIGUUS (cVRG here)
@@ -367,12 +364,12 @@ for i in range(2):
     VRCxyz.append([[xyzOffset[i][k][g] for k in range(3)] for g in range(4)])
 for p, pname in enumerate(VRCname):
     data.update({'L '+pname: {'xyz':list(VRCxyz[0][p])}, 'R '+pname: {'xyz':list(VRCxyz[1][p])}})
-    namelist, brn_namelist, addedObjectAsPoint,_ = extend_namelist_LR(pname, midlineGroups, namelist, brn_namelist, addedObjectAsPoint)
+    [namelist, brn_namelist, addedObjectAsPoint] = extend_namelist_LR(pname, midlineGroups, [namelist, brn_namelist, addedObjectAsPoint])
 # ############ VRG VENTRAL RESPIRATORY GROUP PLACEHOLDER POINT
 VRGname = 'VENTRAL RESPIRATORY GROUP'
 VRGxyz = [[(VRCxyz[i][2][k] + VRCxyz[i][3][k])/2 for k in range(3)] for i in range(2)]
 data.update({'L '+VRGname: {'xyz':list(VRGxyz[0])}, 'R '+VRGname: {'xyz':list(VRGxyz[1])}})
-namelist, brn_namelist, addedObjectAsPoint,_ = extend_namelist_LR(VRGname, midlineGroups, namelist, brn_namelist, addedObjectAsPoint)
+[namelist, brn_namelist, addedObjectAsPoint] = extend_namelist_LR(VRGname, midlineGroups, [namelist, brn_namelist, addedObjectAsPoint])
 
 # ############ TRIGEMINAL MOTOR NUCLEUS: near principal sensory nucleus of V, but closer to midline
 templatename = 'SENSORY NUC OF V'
@@ -380,8 +377,8 @@ templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
 newxyz = [[[t[0]*0.7,t[1],t[2]] for t in row] for row in templatexyz]
 newname = 'MOTOR NUC OF V'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
-cranial_nerve_nuclei_list['TRIGEMINAL'].append(newname)
+[namelist, tract_namelist] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist])
+if newname not in cranial_nerve_nuclei_list['TRIGEMINAL']: cranial_nerve_nuclei_list['TRIGEMINAL'].append(newname)
 # ############ SUPERIOR SALIVATORY NUCLEUS: near facial motor, but closer to midline, and smaller. Add as point
 templatename = 'FACIAL NUC'
 templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
@@ -389,37 +386,37 @@ newxyz = [np.average(xyz,0) for xyz in templatexyz]
 newxyz = [[row[0]*0.7,row[1],row[2]] for row in newxyz]
 newname = 'SUP SALIVATORY NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, addedObjectAsPoint,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist, addedObjectAsPoint)
-cranial_nerve_nuclei_list['FACIAL'].append(newname)
+[namelist, tract_namelist, addedObjectAsPoint] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist, addedObjectAsPoint])
+if newname not in cranial_nerve_nuclei_list['FACIAL']: cranial_nerve_nuclei_list['FACIAL'].append(newname)
 # ############ INFERIOR SALIVATORY NUCLEUS: caudal to superior salivary (assume same 12plane. Add as point
 templatename = 'SUP SALIVATORY NUC'
 templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
 newxyz = [[row[0],row[1],row[2]+0.3] for row in templatexyz]
 newname = 'INF SALIVATORY NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, addedObjectAsPoint,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist, addedObjectAsPoint)
-cranial_nerve_nuclei_list['GLOSSOPHARYNGEAL'].append(newname)
+[namelist, tract_namelist, addedObjectAsPoint] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist, addedObjectAsPoint])
+if newname not in cranial_nerve_nuclei_list['GLOSSOPHARYNGEAL']: cranial_nerve_nuclei_list['GLOSSOPHARYNGEAL'].append(newname)
 # ############ OCULOMOTOR NUCLEI: caudal brainstem
 templatename = 'PONTINE GRAY (D-L DIV)'
 templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
 newxyz = [[[t[0]*0.3,t[1],t[2]] for t in row] for row in templatexyz]
 newname = 'EDINGER-WESTPHAL NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
-cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
+[namelist, tract_namelist] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist])
+if newname not in cranial_nerve_nuclei_list['OCULOMOTOR']: cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
 newxyz = [[[t[0]*0.3,t[1],t[2]+0.05] for t in row] for row in templatexyz]
 newname = 'OCULOMOTOR NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
-cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
+[namelist, tract_namelist] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist])
+if newname not in cranial_nerve_nuclei_list['OCULOMOTOR']: cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
 # ############ TROCHLEAR NUCLEUS: caudal brainstem, just below oculomotor
 templatename = 'OCULOMOTOR NUC'
 templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
 newxyz = [[[t[0],t[1],t[2]+0.2] for t in row] for row in templatexyz]
 newname = 'TROCHLEAR NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
-namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
-cranial_nerve_nuclei_list['TROCHLEAR'].append(newname)
+[namelist, tract_namelist] = extend_namelist_LR(newname, midlineGroups,[namelist, tract_namelist])
+if newname not in cranial_nerve_nuclei_list['TROCHLEAR']: cranial_nerve_nuclei_list['TROCHLEAR'].append(newname)
 
 #########################
 # find regions close to or on the mesh outline (brainSkin.xyz) uasing their datapoints
@@ -680,7 +677,7 @@ for name in sideless_namelist:
         dsMirrored = [[row[0]*-1, row[1], row[2]] for row in dsMirrored]
         regionD.update({missing_object: {'centre': np.array(xyzMirrored),
                                          'axes':dsMirrored}})
-        namelist, tract_nuclear_namelist,nuclear_namelist,_ = extend_namelist_LR(missing_object, midlineGroups, namelist, tract_nuclear_namelist, nuclear_namelist)
+        [namelist, tract_nuclear_namelist,nuclear_namelist] = extend_namelist_LR(missing_object, midlineGroups, [namelist, tract_nuclear_namelist, nuclear_namelist])
         print('Added ', missing_object)
 
 # ############ group together large groups of nuclei into one average location using subnuclei
@@ -1151,6 +1148,7 @@ if writeOut:
                     nodeIdentifiers.append(nodeIdentifier)
                     if ix == len(nervePoints) - 1:
                         CNname.assignString(ccache, sidestr+'emergentEnd')
+                        CNname.assignString(ccache, ' ')
                         markerPoints.addNode(node)
                     else:
                         CNname.assignString(ccache, ' ')
@@ -1170,74 +1168,42 @@ if writeOut:
             nucleiEndPointIDs.update({cn:nodeIdentifiers})
 
             if missing_nerve or len(list(endsDict[cn].keys()))>2:
-                for nucleus in endsDict[cn]:
-                    if 'emergentEnd' not in nucleus:
-                        if True:
-                            axes = [ds1, ds2, ds3]
-                            axes = [[0,0,0]]*3
-                        else:
-                            try:
-                                axes = regionD[nucleus]['axes']
-                                axes = [ds1, ds2, ds3] if regionD[nucleus]['axes'] == None else axes
-                            except:
-                                axes = [ds1, ds2, ds3]
+                makeElem = True
+                outerLoopVar = endsDict[cn]
+            else:
+                makeElem = False
+                outerLoopVar = cranial_nerve_nuclei_list[cn.split(' ')[1]]
+            for nucleus in outerLoopVar:
+                if 'emergentEnd' not in nucleus:
+                    axes = [[0,0,0]]*3
+                    if makeElem:
                         cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + nucleus[2:])
-                        cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
-                        node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
-                        ccache.setNode(node)
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_VALUE, 1, endsDict[cn][nucleus])
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
-                        CNname.assignString(ccache, nucleus)  # key
-                        cranialPoints.addNode(node)
-                        cnuclearPoints.addNode(node)
-                        try:
-                            ultimateNodeIDdict[cranialNerve].update({nucleus: nodeIdentifier})
-                        except:
-                            ultimateNodeIDdict.update({cranialNerve: {nucleus: nodeIdentifier}})
+                        x = endsDict[cn][nucleus]
+                    else:
+                        cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + nucleus)
+                        x = list(regionD_brainstemCoordinates[sidestr + nucleus])
+                    cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
+                    node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
+                    ccache.setNode(node)
+                    child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_VALUE, 1, x)
+                    child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
+                    child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
+                    child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
+                    CNname.assignString(ccache, nucleus)  # key
+                    if makeElem: cranialPoints.addNode(node)
+                    cnuclearPoints.addNode(node)
+                    try:
+                        ultimateNodeIDdict[cranialNerve].update({nucleus: nodeIdentifier})
+                    except:
+                        ultimateNodeIDdict.update({cranialNerve: {nucleus: nodeIdentifier}})
+                    if makeElem:
                         enodes = [nodeIdentifier, nodeIdentifierNerveConnection] if sidestr == 'R ' else [nodeIdentifierNerveConnection, nodeIdentifier]
                         element = cmesh1d.createElement(c_elementIdentifier, elementtemplateChild)
                         result = element.setNodesByIdentifier(eftChild, enodes)
                         cranialMeshGroup.addElement(element)
                         c_elementIdentifier += 1
-                        nodeIdentifier += 1
-            else:
-                # add glyph of nuclear point (repeat of nuclearpoints code)
-                for key in cranial_nerve_nuclei_list[cn.split(' ')[1]]:
-                    sidedKey = sidestr+key
-                    try:
-                        x = list(regionD_brainstemCoordinates[sidedKey])
-                        if True:
-                            axes = [ds1, ds2, ds3]
-                            axes = [[0,0,0]]*3
-                        else:
-                            try:
-                                axes = regionD[sidedKey]['axes']
-                                axes = [ds1, ds2, ds3] if regionD[sidedKey]['axes'] == None else axes
-                            except:
-                                axes = [ds1, ds2, ds3]
-                    except:
-                        print('missing glyph ', sidedKey)
-                    cnuclearGroup = findOrCreateFieldGroup(fmCh, 'nuclear group ' + key)
-                    cnuclearPoints = findOrCreateFieldNodeGroup(cnuclearGroup, cnodes).getNodesetGroup()
+                    nodeIdentifier += 1
 
-                    node = cnodes.createNode(nodeIdentifier, nodetemplatechild)
-                    try:
-                        ccache.setNode(node)
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_VALUE, 1, x)
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS1, 1, list(axes[0]))
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS2, 1, list(axes[1]))
-                        child_coordinates.setNodeParameters(ccache, -1, Node.VALUE_LABEL_D_DS3, 1, list(axes[2]))
-                        CNname.assignString(ccache, ' ')#sidestr + key)
-                        cnuclearPoints.addNode(node) ######################################
-                        try:
-                            ultimateNodeIDdict[cranialNerve].update({sidedKey: nodeIdentifier})
-                        except:
-                            ultimateNodeIDdict.update({cranialNerve:{sidedKey: nodeIdentifier}})
-                        nodeIdentifier += 1
-                    except:
-                        pass
             # ##############################################################################
             # create child  copies of external organs with nodes to make modality connections
             # ##############################################################################
@@ -1310,11 +1276,11 @@ if writeOut:
 
                         except:
                             if orgName not in nonexistentNodeInConnection:
-                                print('node doesn\'t exist for ', orgName)
+                                print('node doesn\'t exist for ', orgName, ' and ',nucName)
                                 nonexistentNodeInConnection.append(orgName)
                     except:
                         if nucName not in nonexistentNodeInConnection:
-                            print('node doesn\'t exist for ',nucName)
+                            print('node doesn\'t exist for ',nucName, 'and', org)
                             nonexistentNodeInConnection.append(nucName)
 
             # end only if a midline or an R group
@@ -1339,7 +1305,6 @@ if writeOut:
         names = [list(endsDict.keys())[0]] if False else endsDict.keys()
         print('findMeshLocation of cranial nerve emergents')
         for nerveName in names:
-            print(nerveName)
             node = dpoints.createNode(dnodeIdentifier, dnodetemplate)
             cache.setNode(node)
             addEnd = endsDict[nerveName]['emergentEnd'].copy()
@@ -1441,7 +1406,7 @@ if writeOut:
                     if not noRawData and writeRaw:
                         w_out.write('gfx modify g_element /raw_data/ points domain_nodes subgroup "group %s" coordinate data_coordinates tessellation default_points LOCAL glyph diamond size "0.4*0.4*0.4" offset 0,0,0 font default select_on%s material %s selected_material default_selected render_shaded;\n' %(key, visibilitystr, currentCol))
             else:
-                w_out.write('gfx modify g_element "/" points domain_nodes subgroup emergentMarker coordinate marker_coordinates tessellation default_points LOCAL glyph sphere size "0.1*0.1*0.1" offset 0,0,0 font default label marker_name label_offset 0,0,0 select_on material yellow selected_material default_selected render_shaded;\n')
+                w_out.write('gfx modify g_element "/" points domain_nodes subgroup emergentMarker coordinate marker_coordinates tessellation default_points LOCAL glyph sphere size "0.05*0.05*0.05" offset 0,0,0 font default label marker_name label_offset 0,0,0 select_on material yellow selected_material default_selected render_shaded;\n')
             if writeBadFitRegions or BRN:# or TRACT:
                 w_out.write('gfx modify g_element "/" points domain_nodes%s coordinate %s tessellation default_points LOCAL glyph none size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0.5,0.5,0 select_on%s material default selected_material default_selected render_shaded;\n\n' %(subgroup_name, coordinates_str, visibilitystr))
 
@@ -1465,7 +1430,7 @@ if writeOut:
                     w_out.write('gfx modify g_element "/%s/" general clear;\n' %cn)
                     sides = ['L ', 'R '] if cn not in midlineGroups else ''
                     for sidestr in sides:
-                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "%spoints" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label cranialnerve_object_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
+                        w_out.write('gfx modify g_element "/%s/" points domain_nodes subgroup "%spoints" coordinate %s tessellation default_points LOCAL glyph diamond size "0.05*0.05*0.05" offset 0,0,0 font default label cranialnerve_object_name label_offset 0,0,0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
                         w_out.write('gfx modify g_element "/%s/" lines domain_mesh1d subgroup "%snerves" coordinate %s face all tessellation default LOCAL line_width 4 line line_base_size 0 select_on%s material %s selected_material default_selected render_shaded;\n' %(cn, sidestr, coordinates_str, visibilitystr, cols[ic%numcols]))
 
                     visibilitystr = ' invisible'
