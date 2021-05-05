@@ -16,6 +16,24 @@ from scaffoldmaker.annotation.annotationgroup import AnnotationGroup
 from scaffoldmaker.utils.meshrefinement import MeshRefinement
 
 
+def cranial_nerve_names():
+    cranialDict = {
+        1: 'OLFACTORY',
+        2: 'OPTIC',
+        3: 'OCULOMOTOR',
+        4: 'TROCHLEAR',
+        5: 'TRIGEMINAL',
+        6: 'ABDUCENS',
+        7: 'FACIAL',
+        8:'VESTIBULOCOCHLEAR',
+        9:'GLOSSOPHARYNGEAL',
+        10: 'VAGUS',
+        11: 'ACCESSORY',
+        12: 'HYPOGLOSSAL'
+    }
+    return cranialDict
+
+
 def extract_coords_from_opengl(path, f, outline, data, structNames, wantNorm = 0):
     # if not dataMerged:
     #     dataMerged = data.copy()
@@ -485,15 +503,31 @@ def zinc_read_exf_file(file, raw_data, derv_present, marker_present, otherFieldN
         return all_node_num, xyz_all, dxyz_single, xyzGroups
 
 
-def zinc_find_ix_from_real_coordinates(region, regionName):
+def zinc_find_ix_from_real_coordinates(region, regionName, coordName, emergent=0):
     fm = region.getFieldmodule()
     cache = fm.createFieldcache()
     # nodes = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_NODES)
     datapoints = fm.findNodesetByFieldDomainType(Field.DOMAIN_TYPE_DATAPOINTS)
     dataNamesField = fm.findFieldByName(regionName)
-    coordinates = findOrCreateFieldCoordinates(fm, "coordinates")
+    coordinates = findOrCreateFieldCoordinates(fm, coordName)
     data_coordinates = findOrCreateFieldCoordinates(fm, "data_coordinates")
-    mesh = fm.findMeshByDimension(3)
+
+    if emergent:
+        mesh = fm.findMeshByDimension(3)
+        if False:
+            mesh = fm.findMeshByDimension(2)
+            # mesh = meshOrig.copy()
+            is_exterior = fm.createFieldIsExterior()
+            is_interior = fm.createFieldNot(is_exterior)
+            is_exterior_face_xi1_0 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI1_0))
+            is_exterior_face_xi1_1 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI1_1))
+            is_exterior_face_xi2_0 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI2_0))
+            is_exterior_face_xi2_1 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI2_1))
+            is_exterior_face_xi3_0 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI3_0))
+            is_exterior_face_xi3_1 = fm.createFieldAnd(is_exterior, fm.createFieldIsOnFace(Element.FACE_TYPE_XI3_1))
+            mesh.destroyElementsConditional(is_interior)
+    else:
+        mesh = fm.findMeshByDimension(3)
 
     found_mesh_location = fm.createFieldFindMeshLocation(data_coordinates, coordinates, mesh)
     found_mesh_location.setSearchMode(found_mesh_location.SEARCH_MODE_NEAREST)
@@ -501,13 +535,20 @@ def zinc_find_ix_from_real_coordinates(region, regionName):
     nodeIter = datapoints.createNodeiterator()
     node = nodeIter.next()
     while node.isValid():
-        # print('dpoint ', node.getIdentifier())
         cache.setNode(node)
         element, xi = found_mesh_location.evaluateMeshLocation(cache, 3)
-        marker_name = dataNamesField.evaluateString(cache).split('_data')[0]
+        if not emergent:
+            marker_name = dataNamesField.evaluateString(cache).split('_data')[0]
+        else:
+            marker_name = dataNamesField.evaluateString(cache)
+        print(marker_name)
         if element.isValid():
             addProjection = {marker_name:{"elementID": element.getIdentifier(), "xi": xi,"nodeID": node.getIdentifier()}}
             xi_projected_data.update(addProjection)
+            if emergent:
+                cache.setMeshLocation(element, xi)
+                res, xyz = coordinates.evaluateReal(cache, 3)
+                print(xyz)
         node = nodeIter.next()
     return xi_projected_data, found_mesh_location
 
