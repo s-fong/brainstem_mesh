@@ -20,7 +20,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 from mpl_toolkits.mplot3d import axes3d
-from brainstem_tools import extract_coords_from_opengl, extract_struct_names_opengl, rudimentary_ellipsoid_fit, repeat_points_along_axis, compress_points_along_axis, find_closest_mesh_node, find_closest_end, centroids_of_tract, rotate_about_x_axis, zinc_find_ix_from_real_coordinates, zinc_write_element_xi_marker_file, zinc_find_embedded_location
+from brainstem_tools import cranial_nerve_names, extract_coords_from_opengl, extract_struct_names_opengl, rudimentary_ellipsoid_fit, repeat_points_along_axis, compress_points_along_axis, find_closest_mesh_node, find_closest_end, centroids_of_tract, rotate_about_x_axis, zinc_find_ix_from_real_coordinates, zinc_write_element_xi_marker_file, zinc_find_embedded_location
 from opencmiss.zinc.context import Context
 from opencmiss.zinc.element import Element, Elementbasis
 from opencmiss.zinc.field import Field
@@ -87,35 +87,18 @@ def abbrev_nuclear_names():
     }
     return dct
 
-def cranial_nerve_names():
-    cranialDict = {
-        1: 'OLFACTORY',
-        2: 'OPTIC',
-        3: 'OCULOMOTOR',
-        4: 'TROCHLEAR',
-        5: 'TRIGEMINAL',
-        6: 'ABDUCENS',
-        7: 'FACIAL',
-        8:'VESTIBULOCOCHLEAR',
-        9:'GLOSSOPHARYNGEAL',
-        10: 'VAGUS',
-        11: 'ACCESSORY',
-        12: 'HYPOGLOSSAL'
-    }
-    return cranialDict
-
 def nerve_modality():
     # show name type and nucleus involved (abbrev)
     modes = {'GSA':	['SENSORY NUC OF V', 'SPINAL TRIGEMINAL NUCLEUS'],
-        'GSE':	['ABDUCENS NUC','HYPOGLOSSAL NUC'],
+        'GSE':	['OCULOMOTOR NUC', 'TROCHLEAR NUC', 'ABDUCENS NUC','HYPOGLOSSAL NUC'],
         'GVA':	['NTS','NA'],
-        'GVE':	['SUP SALIVATORY NUC', 'INF SALIVATORY NUC', 'DOR MOTOR NUC, VAGUS'],
+        'GVE':	['EDINGER-WESTPHAL NUC', 'SUP SALIVATORY NUC', 'INF SALIVATORY NUC', 'DOR MOTOR NUC, VAGUS'],
         'SSA':	['VESTIBULAR COMPLEX','COCHLEAR NUCLEI'],
         'SVA':	['NTS'],
         'SVE':	['NA', 'FACIAL NUC','MOTOR NUC OF V'] }
     return modes
 
-def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, midPonsMedD, cranial_nerve_nuclei_list):
+def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, midPonsMedZBounds, cranial_nerve_nuclei_list):
 
     def labelTractEnds(nerve, cranialDict_raw, nuclearEndNames, exitEnd = []):
         dict = {}
@@ -144,27 +127,40 @@ def create_cranial_nerves(cranialDict_raw, regionD, brainstemCentroid, midPonsMe
         return dict
 
     endsDict = {}
-    xedgeCentroid = [midPonsMedD['xedgeCentroid'][0],0,0]
-    z_ponsMedulla = (max(midPonsMedD['pons']) + min(midPonsMedD['medulla oblongata'])) / 2
+    xedgeCentroid = [midPonsMedZBounds['xedgeCentroid'][0],0,0]
+    z_midbrainPons = (max(midPonsMedZBounds['pons']) + min(midPonsMedZBounds['midbrain'])) / 2
+    z_ponsMedulla = (max(midPonsMedZBounds['pons']) + min(midPonsMedZBounds['medulla oblongata'])) / 2
     xoff = [brainstemCentroid[0] * 0.2 for m in [0.2, 0.5, 0.9]]
 
     # make connections for nerve+nuc that have differing root names
     # construct missing nerves based on origin and endpoints if known
     nerves = [key for key in cranial_nerve_nuclei_list.keys()]
     sign = [-1, 1]
+    ventralYAdj = -1
+    midPonsMedZBounds['xedgeCentroid'][1] *= ventralYAdj
     exitEnd = {}
-    exitEnd['TRIGEMINAL'] = [[brainstemCentroid[i] + (sign[j]*xedgeCentroid[i]) for i in range(3)] for j in range(2)]
-    exitEnd['ABDUCENS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.2), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
-    exitEnd['FACIAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.8), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
-    exitEnd['VESTIBULOCOCHLEAR'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.9), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
-    exitEnd['GLOSSOPHARYNGEAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.99), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
-    exitEnd['VAGUS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.99), midPonsMedD['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)] # 0.8 or 1.2?
+    exitEnd['OCULOMOTOR'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.1), midPonsMedZBounds['xedgeCentroid'][1], z_midbrainPons] for j in range(2)]
+    exitEnd['TROCHLEAR'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.1), ventralYAdj*midPonsMedZBounds['xedgeCentroid'][1], z_midbrainPons] for j in range(2)]
+    tri_adj = [0,-0.1,0.1]
+    exitEnd['TRIGEMINAL'] = [[tri_adj[i] + brainstemCentroid[i] + (sign[j]*xedgeCentroid[i]) for i in range(3)] for j in range(2)]
+    exitEnd['ABDUCENS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.2), midPonsMedZBounds['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['FACIAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.8), midPonsMedZBounds['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['VESTIBULOCOCHLEAR'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*0.9), midPonsMedZBounds['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['GLOSSOPHARYNGEAL'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*1.2), midPonsMedZBounds['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['VAGUS'] = [[brainstemCentroid[0]+(sign[j]*xedgeCentroid[0]*1.1), midPonsMedZBounds['xedgeCentroid'][1], z_ponsMedulla] for j in range(2)]
+    exitEnd['ACCESSORY-cranialRoot'] = exitEnd['VAGUS']
+    exitEnd['ACCESSORY-cranialRoot'][0][-1] += 0.1
+    exitEnd['ACCESSORY-cranialRoot'][1][-1] += 0.1
     # XII exits between inf olive and pyramid (the boundary of the medulla). Offset by radius of ellipsoid in x for now.
-    hnerve = 'HYPOGLOSSAL'
-    exitEnd[hnerve] = [list(regionD[s[i] + 'INF OLIVE COMPLEX']) for i in range(2)]
-    for i in range(2):
-        sign = -1 if exitEnd[hnerve][i][0]<0 else 1
-        exitEnd[hnerve][i][0] = sign* (abs(exitEnd[hnerve][i][0]) + regionD[s[i] + 'INF OLIVE COMPLEX'][0] + 1e-3)
+    try:
+        hnerve = 'HYPOGLOSSAL'
+        exitEnd[hnerve] = [list(regionD[s[i] + 'INF OLIVE COMPLEX']) for i in range(2)]
+        for i in range(2):
+            sign = -1 if exitEnd[hnerve][i][0]<0 else 1
+            exitEnd[hnerve][i][0] = sign* (abs(exitEnd[hnerve][i][0]) + regionD[s[i] + 'INF OLIVE COMPLEX'][0] + 1e-3)
+            # exitEnd[hnerve][i][1] *= ventralYAdj
+    except:
+        print('Marked inf olive complex is not present. probably not using the USF cat brainstem')
 
     for nerve in nerves:
         if nerve in list(exitEnd.keys()):
@@ -255,6 +251,8 @@ brn_namelist = []
 for name in brn_namelist0:
     brn_namelist,_,_, _ = extend_namelist_LR(name, midlineGroups, brn_namelist)
 cranial_nerve_nuclei_list = {
+    'OCULOMOTOR': ['EDINGER-WESTPHAL NUC','OCULOMOTOR NUC'],
+    'TROCHLEAR': ['TROCHLEAR NUC'],
     'TRIGEMINAL': ['SENSORY NUC OF V', 'SPINAL TRIGEMINAL NUCLEUS'],#,'MOTOR NUC OF V'],
     'ABDUCENS': ['ABDUCENS NUC'],
     'FACIAL': ['FACIAL NUC', 'NUC TRACTUS SOLITARIUS', 'SPINAL TRIGEMINAL NUCLEUS'],#'SUP SALIVATORY NUC'],
@@ -262,6 +260,7 @@ cranial_nerve_nuclei_list = {
     'GLOSSOPHARYNGEAL': ['NUC AMBIGUUS', 'NUC TRACTUS SOLITARIUS', 'SPINAL TRIGEMINAL NUCLEUS'], #, 'INF SALIVATORY NUC'],
     'VAGUS': ['NUC AMBIGUUS', 'NUC TRACTUS SOLITARIUS', 'DOR MOTOR NUC, VAGUS',
               'SPINAL TRIGEMINAL NUCLEUS'],
+    'ACCESSORY-cranialRoot': ['NUC AMBIGUUS'],
     'HYPOGLOSSAL': ['HYPOGLOSSAL NUC'],
 }
 tract_namelist0 = []
@@ -378,7 +377,6 @@ namelist, brn_namelist, addedObjectAsPoint,_ = extend_namelist_LR(VRGname, midli
 # ############ TRIGEMINAL MOTOR NUCLEUS: near principal sensory nucleus of V, but closer to midline
 templatename = 'SENSORY NUC OF V'
 templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
-# newxyz = [np.average(xyz,0) for xyz in templatexyz]
 newxyz = [[[t[0]*0.7,t[1],t[2]] for t in row] for row in templatexyz]
 newname = 'MOTOR NUC OF V'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
@@ -401,6 +399,27 @@ newname = 'INF SALIVATORY NUC'
 data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
 namelist, tract_namelist, addedObjectAsPoint,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist, addedObjectAsPoint)
 cranial_nerve_nuclei_list['GLOSSOPHARYNGEAL'].append(newname)
+# ############ OCULOMOTOR NUCLEI: caudal brainstem
+templatename = 'PONTINE GRAY (D-L DIV)'
+templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
+newxyz = [[[t[0]*0.3,t[1],t[2]] for t in row] for row in templatexyz]
+newname = 'EDINGER-WESTPHAL NUC'
+data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
+namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
+cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
+newxyz = [[[t[0]*0.3,t[1],t[2]+0.05] for t in row] for row in templatexyz]
+newname = 'OCULOMOTOR NUC'
+data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
+namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
+cranial_nerve_nuclei_list['OCULOMOTOR'].append(newname)
+# ############ TROCHLEAR NUCLEUS: caudal brainstem, just below oculomotor
+templatename = 'OCULOMOTOR NUC'
+templatexyz = [data['L '+templatename]['xyz'], data['R '+templatename]['xyz']]
+newxyz = [[[t[0],t[1],t[2]+0.2] for t in row] for row in templatexyz]
+newname = 'TROCHLEAR NUC'
+data.update({'L '+newname: {'xyz':list(newxyz[0])}, 'R '+newname: {'xyz':list(newxyz[1])}})
+namelist, tract_namelist, _,_ = extend_namelist_LR(newname, midlineGroups,namelist, tract_namelist)
+cranial_nerve_nuclei_list['TROCHLEAR'].append(newname)
 
 #########################
 # find regions close to or on the mesh outline (brainSkin.xyz) uasing their datapoints
@@ -746,7 +765,7 @@ if writeOut:
 
     # extract group info for midbrain, pons, medulla
     groupNames = ['midbrain','pons','medulla oblongata']
-    midPonsMedD = {c:[] for c in groupNames}
+    midPonsMedZBounds = {c:[] for c in groupNames}
     for groupName in groupNames:
         group = fm.findFieldByName(groupName).castGroup()
         nodeGroup = group.getFieldNodeGroup(nodes)
@@ -769,8 +788,8 @@ if writeOut:
             # find z values of boundaries of midbrain/pons/medulla
             if x[2] < zBounds[0]: zBounds[0] = x[2]
             if x[2] > zBounds[1]: zBounds[1] = x[2]
-        midPonsMedD[groupName] = zBounds
-    midPonsMedD['xedgeCentroid'] = xedgeCentroid
+        midPonsMedZBounds[groupName] = zBounds
+    midPonsMedZBounds['xedgeCentroid'] = xedgeCentroid
 
     if scale_brainstem_mesh:
         scale = 1.2
@@ -1063,10 +1082,10 @@ if writeOut:
 
         # cranial nerves and their nuclei
         brainstemCentroid = [b/deformedBodyScale for b in brainstemCentroid]
-        endsDict = create_cranial_nerves(cranialDict_raw, regionD_brainstemCoordinates, brainstemCentroid, midPonsMedD, cranial_nerve_nuclei_list)
+        endsDict = create_cranial_nerves(cranialDict_raw, regionD_brainstemCoordinates, brainstemCentroid, midPonsMedZBounds, cranial_nerve_nuclei_list)
 
         existingCranialRegions = []
-        emergentEndOffset = [0.4, 0.4, 0] #[0.5,0,0]
+        emergentEndOffset = [0.04, 0.4, 0] #[0.5,0,0]
         nucleiEndPointIDs = {}
         nonexistentNodeInConnection = []
         emergentNerveCoordinate = {}
@@ -1329,8 +1348,6 @@ if writeOut:
             addEnd = emergentNerveCoordinate[nerveName]
             d_coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, addEnd)
             markerName.assignString(cache, nerveName)
-            # tup, _ = zinc_find_ix_from_real_coordinates(region, markerName.getName(), 'brainstem_coordinates', emergent=1)
-            # emergentDict.update(tup)
             dnodeIdentifier += 1
         tup, _ = zinc_find_ix_from_real_coordinates(region, markerName.getName(), 'brainstem_coordinates', emergent=1)
         emergentDict.update(tup)
@@ -1418,7 +1435,7 @@ if writeOut:
                         w_out.write('gfx modify g_element "/" points domain_nodes subgroup "nuclear group %s" coordinate %s tessellation default_points LOCAL glyph point size "1*1*1" offset 0,0,0 font default label brainstem_region_name label_offset 0,0,0 select_on material default selected_material default_selected render_shaded;\n' %(key,coordinates_str))
                         if key[:2] == 'R ':    print('midbrain_test: ',key[2:], 'z: %2.2f'%midbrainNucleiZVal[key])
                     if ALL and findNuclearProjections:
-                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "%s_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation deformed_orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (xiGroupRootName, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
+                        w_out.write('gfx modify g_element "/" points domain_nodes subgroup "%s_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (xiGroupRootName, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
                     elif not ALL:
                         w_out.write('gfx modify g_element "/" points domain%s subgroup "xiGroups_%s" coordinate %s tessellation default_points LOCAL glyph sphere size "%0.3f*%0.3f*%0.3f" offset 0,0,0 font default orientation orientation_scale scale_factors "1*1*1" select_on%s material %s selected_material default_selected render_shaded;\n' % (domainStr, key, coordStr, rs,rs,rs,visibilitystr, currentCol))
                     if not noRawData and writeRaw:

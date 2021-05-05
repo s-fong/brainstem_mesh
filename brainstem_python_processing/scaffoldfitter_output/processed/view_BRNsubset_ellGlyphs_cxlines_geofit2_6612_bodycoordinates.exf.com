@@ -2,6 +2,7 @@ gfx read elements "ellGlyphs_cxlines_geofit2_6612_bodycoordinates.exf"
 
 gfx define field nuclearRegion_coordinates embedded element_xi elementxi_location field brainstem_coordinates
 
+gfx define field marker_coordinates embedded element_xi marker_location field brainstem_coordinates
 gfx define field d1 node_value fe_field brainstem_coordinates d/ds1
 gfx define field d2 node_value fe_field brainstem_coordinates d/ds2
 gfx define field d3 node_value fe_field brainstem_coordinates d/ds3
