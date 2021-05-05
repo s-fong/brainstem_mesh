@@ -541,14 +541,14 @@ def zinc_find_ix_from_real_coordinates(region, regionName, coordName, emergent=0
             marker_name = dataNamesField.evaluateString(cache).split('_data')[0]
         else:
             marker_name = dataNamesField.evaluateString(cache)
-        print(marker_name)
+        # print(marker_name)
         if element.isValid():
             addProjection = {marker_name:{"elementID": element.getIdentifier(), "xi": xi,"nodeID": node.getIdentifier()}}
             xi_projected_data.update(addProjection)
             if emergent:
                 cache.setMeshLocation(element, xi)
                 res, xyz = coordinates.evaluateReal(cache, 3)
-                print(xyz)
+                # print(xyz)
         node = nodeIter.next()
     return xi_projected_data, found_mesh_location
 
