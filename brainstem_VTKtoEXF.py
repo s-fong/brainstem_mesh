@@ -6,9 +6,7 @@ from vtk.util.numpy_support import vtk_to_numpy
 import matplotlib.pyplot as plt
 from opencmiss.zinc.context import Context
 from opencmiss.zinc.node import Node
-from opencmiss.utils.zinc.field import Field, findOrCreateFieldFiniteElement, findOrCreateFieldCoordinates, findOrCreateFieldGroup, \
-    findOrCreateFieldNodeGroup, findOrCreateFieldStoredMeshLocation, findOrCreateFieldStoredString
-
+from opencmiss.utils.zinc.field import Field, findOrCreateFieldCoordinates
 
 path = "simcore-rat\\"
 
@@ -46,9 +44,6 @@ for vf in vfiles:
         cache.setNode(node)
         result = coordinates.setNodeParameters(cache, -1, Node.VALUE_LABEL_VALUE, 1, list([float(pp) for pp in p]))
         nodeIdentifier += 1
-
-    # add markers: positional and cranialNerveEmergents
-    # it is hard to pinpoint where the brainstwem regions are located as there is no information in the data. Coordinates are a guess.
 
     fm.endChange()
     region.writeFile(outFile)
